@@ -87,14 +87,28 @@ class DistributionModel:
         n_components = min(n_components, features.shape[0] // 2)
         n_components = max(1, n_components)
 
+        # For full covariance, need more samples than features
+        # If not enough samples, fall back to diagonal covariance
+        n_samples, n_features = features.shape
+        if covariance_type == "full" and n_samples < n_features * 2:
+            logger.warning(
+                f"Not enough samples ({n_samples}) for full covariance with "
+                f"{n_features} features. Falling back to diagonal covariance."
+            )
+            covariance_type = "diag"
+
         logger.info(f"Fitting GMM with {n_components} components, "
                    f"covariance_type={covariance_type}")
+
+        # Use regularization to avoid singular covariance matrices
+        reg_covar = 1e-4 if covariance_type == "full" else 1e-6
 
         self.model = GaussianMixture(
             n_components=n_components,
             covariance_type=covariance_type,
             max_iter=200,
             n_init=3,
+            reg_covar=reg_covar,
             random_state=CONFIG["random_seed"],
         )
 

@@ -195,13 +195,13 @@ class MonotonicityEvaluator:
         Returns:
             Tuple of (levels, scores)
         """
-        batch_generator = BatchDegradationGenerator(self.degradation_config)
+        batch_generator = BatchDegradationGenerator(self.degradation_config, num_workers=8)
         num_levels = self.degradation_generator.get_num_levels(degradation_type)
 
         levels = np.arange(num_levels)
         scores = []
 
-        # Load images if paths
+        # Load images if paths (cache in memory)
         pil_images = []
         for img in images:
             if isinstance(img, str):

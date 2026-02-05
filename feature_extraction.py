@@ -397,8 +397,9 @@ class FeatureExtractor:
             dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=0,  # Avoid multiprocessing issues
+            num_workers=4,  # Parallel data loading
             pin_memory=True if self.device == "cuda" else False,
+            persistent_workers=True,
         )
 
         all_features = []

@@ -297,9 +297,17 @@ class BatchDegradationGenerator:
     Efficient batch processing of degradations for evaluation.
     """
 
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Dict = None, num_workers: int = 8):
         self.generator = DegradationGenerator(config)
         self.config = self.generator.config
+        self.num_workers = num_workers
+
+    def _process_single_image(self, args):
+        """Process a single image (for parallel execution)."""
+        img, degradation_type, level = args
+        if isinstance(img, str):
+            img = Image.open(img).convert("RGB")
+        return self.generator.apply_degradation(img, degradation_type, level)
 
     def process_image_batch(
         self,
@@ -308,7 +316,7 @@ class BatchDegradationGenerator:
         level: int,
     ) -> List[Image.Image]:
         """
-        Apply degradation to a batch of images.
+        Apply degradation to a batch of images in parallel.
 
         Args:
             images: List of image paths or PIL Images
@@ -318,14 +326,12 @@ class BatchDegradationGenerator:
         Returns:
             List of degraded PIL Images
         """
-        results = []
+        from concurrent.futures import ThreadPoolExecutor
 
-        for img in images:
-            if isinstance(img, str):
-                img = Image.open(img).convert("RGB")
+        args_list = [(img, degradation_type, level) for img in images]
 
-            degraded = self.generator.apply_degradation(img, degradation_type, level)
-            results.append(degraded)
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            results = list(executor.map(self._process_single_image, args_list))
 
         return results
 

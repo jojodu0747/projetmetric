@@ -24,7 +24,10 @@ from evaluation import (
     MonotonicityEvaluator,
     evaluate_all_degradations,
     compute_aggregate_monotonicity,
+    evaluate_monotonicity,
 )
+from degradation_generator import BatchDegradationGenerator, DegradationGenerator
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(
@@ -82,6 +85,73 @@ def load_images(
 
     logger.info(f"Loaded {len(image_paths)} images")
     return image_paths
+
+
+def extract_all_degraded_features(
+    eval_images: List[str],
+    extractor: FeatureExtractor,
+    degradation_config: Dict,
+) -> Dict[str, List[np.ndarray]]:
+    """
+    Pre-extract features for all degradation types and levels.
+
+    Returns a cache: {degradation_type: [features_level_0, features_level_1, ...]}
+    """
+    cache = {}
+    batch_generator = BatchDegradationGenerator(degradation_config, num_workers=8)
+    deg_generator = DegradationGenerator(degradation_config)
+
+    # Load all images into memory once
+    logger.info("Loading evaluation images into memory...")
+    pil_images = [Image.open(p).convert("RGB") for p in eval_images]
+
+    for deg_type in degradation_config.keys():
+        num_levels = deg_generator.get_num_levels(deg_type)
+        cache[deg_type] = []
+
+        logger.info(f"Extracting features for {deg_type} ({num_levels} levels)...")
+
+        for level in range(num_levels):
+            # Degrade images in parallel
+            degraded_batch = batch_generator.process_image_batch(
+                pil_images, deg_type, level
+            )
+            # Extract features
+            features = extractor.extract(degraded_batch, fit_transform=False)
+            cache[deg_type].append(features)
+
+    return cache
+
+
+def evaluate_with_cached_features(
+    reference_features: np.ndarray,
+    degraded_features_cache: Dict[str, List[np.ndarray]],
+    metric,
+) -> Dict[str, Dict]:
+    """
+    Evaluate metric using pre-extracted cached features.
+    """
+    results = {}
+
+    for deg_type, features_list in degraded_features_cache.items():
+        num_levels = len(features_list)
+        levels = np.arange(num_levels)
+        scores = []
+
+        for features in features_list:
+            score = metric.compute(reference_features, features)
+            score = get_metric_score(score)
+            scores.append(score)
+
+        mono_score = evaluate_monotonicity(levels, np.array(scores))
+
+        results[deg_type] = {
+            "levels": levels.tolist(),
+            "scores": scores,
+            "monotonicity": mono_score,
+        }
+
+    return results
 
 
 def save_results_csv(results: List[Dict], filepath: str):
@@ -256,6 +326,12 @@ def run_experiment():
                 )
                 logger.info(f"Reference features shape: {reference_features.shape}")
 
+                # Pre-extract features for all degradation levels (cache for reuse)
+                logger.info("Pre-extracting degraded features (cached for all metrics)...")
+                degraded_features_cache = extract_all_degraded_features(
+                    eval_images, extractor, CONFIG["degradations"]
+                )
+
                 for dist_config in CONFIG["distribution_models"]:
                     # Fit distribution model
                     logger.info(f"Fitting distribution model: {dist_config['name']}")
@@ -271,12 +347,9 @@ def run_experiment():
 
                         metric = get_distance_metric(metric_name)
 
-                        # Evaluate monotonicity across degradations
-                        evaluator = MonotonicityEvaluator(
-                            extractor, reference_features, CONFIG["degradations"]
-                        )
-                        eval_results = evaluator.evaluate_all_degradations(
-                            eval_images, metric
+                        # Evaluate using cached features
+                        eval_results = evaluate_with_cached_features(
+                            reference_features, degraded_features_cache, metric
                         )
 
                         # Extract monotonicity scores

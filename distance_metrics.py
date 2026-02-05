@@ -294,12 +294,13 @@ def compute_cmmd(
         else:
             sample = features_ref
 
-        # Compute pairwise distances
-        dists = np.sqrt(
+        # Compute pairwise distances (clamp negative values from numerical errors)
+        sq_dists = (
             np.sum(sample[:, None, :] ** 2, axis=2)
             + np.sum(sample[None, :, :] ** 2, axis=2)
             - 2 * sample @ sample.T
         )
+        dists = np.sqrt(np.maximum(sq_dists, 0))
         sigma = np.median(dists[dists > 0])
         if sigma == 0:
             sigma = 1.0
