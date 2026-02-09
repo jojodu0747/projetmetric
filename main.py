@@ -15,8 +15,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
-
-from config import CONFIG, get_config, update_config
+from config import CONFIG, BACKBONE_CONFIGS, get_config, update_config
 from feature_extraction import FeatureExtractor
 from distribution_modeling import DistributionModel
 from distance_metrics import get_distance_metric, get_metric_score
@@ -155,31 +154,116 @@ def evaluate_with_cached_features(
 
 
 def save_results_csv(results: List[Dict], filepath: str):
-    """Save results to CSV file."""
+    """Save all results to a single comprehensive CSV file.
+
+    Each row contains full context: date, backbone, layer info (indices,
+    module names, position/total), transform params, distribution params,
+    metric, monotonicity scores, and all hyperparameters.
+    """
     if not results:
         return
 
-    # Flatten results for CSV
+    backbone_name = CONFIG["backbone"]
+    backbone_config = BACKBONE_CONFIGS[backbone_name]
+    layer_names_map = backbone_config["layer_names"]
+    total_layers = backbone_config.get("total_layers", len(layer_names_map))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    deg_types = list(results[0]["monotonicity"].keys()) if results else []
+
+    # Build header
+    fieldnames = [
+        "date",
+        "modele_backbone",
+        "config_couches",
+        "indices_couches",
+        "modules_extraits",
+        "position_couche",
+        "nb_couches_modele",
+        "transform",
+        "use_gram",
+        "use_pca",
+        "pca_dim",
+        "distribution",
+        "dist_type",
+        "dist_n_components",
+        "dist_covariance_type",
+        "dist_bandwidth",
+        "metrique_distance",
+        "monotonie_moyenne",
+    ]
+    for deg_type in deg_types:
+        fieldnames.append(f"mono_{deg_type}")
+    fieldnames.extend([
+        "image_size",
+        "n_images_inference",
+        "n_images_evaluation",
+        "batch_size",
+        "random_seed",
+    ])
+
     rows = []
     for r in results:
+        # Resolve layer config
+        layer_cfg = None
+        for lc in CONFIG["layer_configs"]:
+            if lc["name"] == r["layers"]:
+                layer_cfg = lc
+                break
+        layer_indices = layer_cfg["layers"] if layer_cfg else []
+        module_names = [layer_names_map.get(idx, f"?(index {idx})") for idx in layer_indices]
+        indices_str = " | ".join(str(i) for i in layer_indices)
+        position_str = f"{indices_str} / {total_layers}"
+
+        # Resolve transform config
+        transform_cfg = None
+        for tc in CONFIG["feature_transforms"]:
+            if tc["name"] == r["transform"]:
+                transform_cfg = tc
+                break
+
+        # Resolve distribution config
+        dist_cfg = None
+        for dc in CONFIG["distribution_models"]:
+            if dc["name"] == r.get("distribution", ""):
+                dist_cfg = dc
+                break
+
         row = {
-            "layers": r["layers"],
+            "date": timestamp,
+            "modele_backbone": backbone_name,
+            "config_couches": r["layers"],
+            "indices_couches": indices_str,
+            "modules_extraits": " | ".join(module_names),
+            "position_couche": position_str,
+            "nb_couches_modele": total_layers,
             "transform": r["transform"],
+            "use_gram": transform_cfg.get("use_gram", "") if transform_cfg else "",
+            "use_pca": transform_cfg.get("use_pca", "") if transform_cfg else "",
+            "pca_dim": transform_cfg.get("pca_dim", "") if transform_cfg else "",
             "distribution": r.get("distribution", "empirical"),
-            "metric": r["metric"],
-            "mean_monotonicity": r["mean_monotonicity"],
+            "dist_type": dist_cfg.get("type", "") if dist_cfg else "",
+            "dist_n_components": dist_cfg.get("n_components", "") if dist_cfg else "",
+            "dist_covariance_type": dist_cfg.get("covariance_type", "") if dist_cfg else "",
+            "dist_bandwidth": dist_cfg.get("bandwidth", "") if dist_cfg else "",
+            "metrique_distance": r["metric"],
+            "monotonie_moyenne": round(r["mean_monotonicity"], 6),
         }
-        # Add per-degradation monotonicity
-        for deg_type, score in r["monotonicity"].items():
-            row[f"mono_{deg_type}"] = score
+        for deg_type in deg_types:
+            row[f"mono_{deg_type}"] = round(r["monotonicity"].get(deg_type, 0), 6)
+        row["image_size"] = CONFIG["image_size"]
+        row["n_images_inference"] = CONFIG["n_images_inference"]
+        row["n_images_evaluation"] = CONFIG["n_images_evaluation"]
+        row["batch_size"] = CONFIG["batch_size"]
+        row["random_seed"] = CONFIG["random_seed"]
         rows.append(row)
 
     with open(filepath, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    logger.info(f"Results saved to {filepath}")
+    logger.info(f"Résultats sauvegardés dans {filepath}")
 
 
 def save_results_json(results: List[Dict], filepath: str):
@@ -386,11 +470,8 @@ def run_experiment():
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_path = os.path.join(results_path, f"results_{timestamp}.csv")
-    json_path = os.path.join(results_path, f"results_{timestamp}.json")
-
+    csv_path = os.path.join(results_path, f"resultats_{timestamp}.csv")
     save_results_csv(results, csv_path)
-    save_results_json(results, json_path)
 
     # Print summary
     print_best_metrics(results)
@@ -399,6 +480,130 @@ def run_experiment():
     plot_monotonicity_curves(results, results_path)
 
     logger.info("Experiment completed successfully")
+    return results
+
+
+def run_medium_experiment():
+    """Run a medium experiment: all layers & metrics, but skip slow raw features."""
+    logger.info("Starting MEDIUM experiment (skipping raw high-dim features)")
+
+    np.random.seed(CONFIG["random_seed"])
+
+    results_path = CONFIG["results_path"]
+    os.makedirs(results_path, exist_ok=True)
+    setup_logging(results_path)
+
+    # Load images with config values
+    reference_images = load_images(
+        CONFIG["dataset_path"], CONFIG["n_images_inference"]
+    )
+    eval_images = load_images(CONFIG["dataset_path"], CONFIG["n_images_evaluation"])
+
+    eval_set = set(eval_images)
+    reference_images = [p for p in reference_images if p not in eval_set]
+
+    # Medium mode: only keep transforms that produce low-dimensional features
+    # raw → 2048 dims (sqrtm too slow), gram_only → 500K dims (OOM on covariance)
+    # Only gram_pca (10 dims) is tractable for FID/covariance computations
+    medium_transforms = [
+        t for t in CONFIG["feature_transforms"] if t["name"] == "gram_pca"
+    ]
+    # Skip KDE (slow cross-validation) and keep both GMMs
+    medium_distributions = [
+        d for d in CONFIG["distribution_models"] if d["type"] != "kde"
+    ]
+
+    total_configs = (
+        len(CONFIG["layer_configs"])
+        * len(medium_transforms)
+        * len(medium_distributions)
+        * len(CONFIG["distance_metrics"])
+    )
+    logger.info(f"Medium mode: {total_configs} configurations "
+                f"(vs {len(CONFIG['layer_configs']) * len(CONFIG['feature_transforms']) * len(CONFIG['distribution_models']) * len(CONFIG['distance_metrics'])} in full)")
+
+    results = []
+    config_idx = 0
+
+    for layer_config in CONFIG["layer_configs"]:
+        for transform_config in medium_transforms:
+            logger.info(
+                f"Creating extractor: backbone={CONFIG['backbone']}, "
+                f"layers={layer_config['name']}, transform={transform_config['name']}"
+            )
+
+            extractor = FeatureExtractor(
+                backbone=CONFIG["backbone"],
+                layer_config=layer_config,
+                transform_config=transform_config,
+            )
+
+            try:
+                logger.info("Extracting reference features...")
+                reference_features = extractor.extract(
+                    reference_images, fit_transform=True
+                )
+                logger.info(f"Reference features shape: {reference_features.shape}")
+
+                logger.info("Pre-extracting degraded features...")
+                degraded_features_cache = extract_all_degraded_features(
+                    eval_images, extractor, CONFIG["degradations"]
+                )
+
+                for dist_config in medium_distributions:
+                    logger.info(f"Fitting distribution model: {dist_config['name']}")
+                    model = DistributionModel(dist_config)
+                    model.fit(reference_features)
+
+                    for metric_name in CONFIG["distance_metrics"]:
+                        config_idx += 1
+                        logger.info(
+                            f"Evaluating config {config_idx}/{total_configs}: "
+                            f"metric={metric_name}"
+                        )
+
+                        metric = get_distance_metric(metric_name)
+                        eval_results = evaluate_with_cached_features(
+                            reference_features, degraded_features_cache, metric
+                        )
+
+                        monotonicity = {
+                            deg_type: res["monotonicity"]
+                            for deg_type, res in eval_results.items()
+                        }
+                        detailed_scores = {
+                            deg_type: res["scores"]
+                            for deg_type, res in eval_results.items()
+                        }
+
+                        result = {
+                            "layers": layer_config["name"],
+                            "transform": transform_config["name"],
+                            "distribution": dist_config["name"],
+                            "metric": metric_name,
+                            "monotonicity": monotonicity,
+                            "detailed_scores": detailed_scores,
+                            "mean_monotonicity": compute_aggregate_monotonicity(
+                                monotonicity
+                            ),
+                        }
+                        results.append(result)
+                        logger.info(
+                            f"Mean monotonicity: {result['mean_monotonicity']:.4f}"
+                        )
+
+            finally:
+                extractor.cleanup()
+
+    # Save results
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_path = os.path.join(results_path, f"resultats_medium_{timestamp}.csv")
+    save_results_csv(results, csv_path)
+
+    print_best_metrics(results)
+    plot_monotonicity_curves(results, results_path)
+
+    logger.info("Medium experiment completed successfully")
     return results
 
 
@@ -458,13 +663,13 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["full", "quick"],
-        default="full",
-        help="Run mode: 'full' for complete evaluation, 'quick' for test run",
+        choices=["full", "medium", "quick"],
+        default="medium",
+        help="Run mode: 'full' for complete evaluation, 'medium' for balanced run, 'quick' for test run",
     )
     parser.add_argument(
         "--backbone",
-        choices=["resnet50", "vgg19", "dinov2_vitb14"],
+        choices=["resnet50", "vgg19", "dinov2_vitb14", "sd_vae", "lpips_vgg"],
         default=None,
         help="Override backbone model",
     )
@@ -494,6 +699,8 @@ def main():
     # Run selected mode
     if args.mode == "quick":
         run_quick_test()
+    elif args.mode == "medium":
+        run_medium_experiment()
     else:
         run_experiment()
 

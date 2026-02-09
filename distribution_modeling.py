@@ -87,21 +87,23 @@ class DistributionModel:
         n_components = min(n_components, features.shape[0] // 2)
         n_components = max(1, n_components)
 
-        # For full covariance, need more samples than features
-        # If not enough samples, fall back to diagonal covariance
+        # For full covariance, need enough samples per component
         n_samples, n_features = features.shape
-        if covariance_type == "full" and n_samples < n_features * 2:
-            logger.warning(
-                f"Not enough samples ({n_samples}) for full covariance with "
-                f"{n_features} features. Falling back to diagonal covariance."
-            )
-            covariance_type = "diag"
+        if covariance_type == "full":
+            # Need at least n_features+1 samples per component for stable full covariance
+            max_components_full = max(1, n_samples // (n_features + 1))
+            if n_components > max_components_full:
+                n_components = max_components_full
+                logger.warning(
+                    f"Reduced to {n_components} components for full covariance "
+                    f"({n_samples} samples, {n_features} features)"
+                )
 
         logger.info(f"Fitting GMM with {n_components} components, "
                    f"covariance_type={covariance_type}")
 
         # Use regularization to avoid singular covariance matrices
-        reg_covar = 1e-4 if covariance_type == "full" else 1e-6
+        reg_covar = 1e-2 if covariance_type == "full" else 1e-6
 
         self.model = GaussianMixture(
             n_components=n_components,
@@ -112,7 +114,19 @@ class DistributionModel:
             random_state=CONFIG["random_seed"],
         )
 
-        self.model.fit(features)
+        try:
+            self.model.fit(features)
+        except ValueError as e:
+            logger.warning(f"GMM full covariance failed: {e}. Falling back to diag.")
+            self.model = GaussianMixture(
+                n_components=n_components,
+                covariance_type="diag",
+                max_iter=200,
+                n_init=3,
+                reg_covar=1e-6,
+                random_state=CONFIG["random_seed"],
+            )
+            self.model.fit(features)
 
         # Log convergence info
         if not self.model.converged_:

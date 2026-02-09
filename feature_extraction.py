@@ -129,6 +129,17 @@ class FeatureExtractor:
             self.model = torch.hub.load(
                 "facebookresearch/dinov2", "dinov2_vitb14", pretrained=True
             )
+
+        elif self.backbone_name == "sd_vae":
+            from diffusers import AutoencoderKL
+            self.model = AutoencoderKL.from_pretrained(
+                self.backbone_config["weights"]
+            )
+
+        elif self.backbone_name == "lpips_vgg":
+            import lpips
+            self.model = lpips.LPIPS(net="vgg", verbose=False)
+
         else:
             raise ValueError(f"Unknown backbone: {self.backbone_name}")
 
@@ -255,7 +266,7 @@ class FeatureExtractor:
         batch_size, dim = features.shape
 
         # For very high dimensions, subsample to avoid memory issues
-        max_dim = 1000
+        max_dim = 2048
         if dim > max_dim:
             logger.debug(f"Subsampling features from {dim} to {max_dim}")
             indices = np.random.choice(dim, max_dim, replace=False)
@@ -337,9 +348,15 @@ class FeatureExtractor:
         for hook in self.hooks.values():
             hook.clear()
 
-        # Forward pass
+        # Forward pass (custom per backbone)
         with torch.no_grad():
-            _ = self.model(images)
+            if self.backbone_name == "sd_vae":
+                _ = self.model.encoder(images)
+            elif self.backbone_name == "lpips_vgg":
+                scaled = self.model.scaling_layer(images)
+                _ = self.model.net(scaled)
+            else:
+                _ = self.model(images)
 
         # Collect features from all hooks
         features_list = []
@@ -447,7 +464,7 @@ class GramPCATransformer:
         batch_size, dim = features.shape
 
         # Subsample for large dimensions
-        max_dim = 1000
+        max_dim = 2048
         if dim > max_dim:
             indices = np.random.choice(dim, max_dim, replace=False)
             features = features[:, indices]

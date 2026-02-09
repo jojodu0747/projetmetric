@@ -5,3 +5,6 @@ scipy>=1.10.0
 scikit-learn>=1.2.0
 Pillow>=9.4.0
 matplotlib>=3.7.0
+openpyxl>=3.1.0
+diffusers>=0.25.0
+lpips>=0.1.4

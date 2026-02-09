@@ -149,7 +149,7 @@ class DegradationGenerator:
         original_size = image.size
 
         # Downsample (using nearest neighbor for aliasing artifacts)
-        small_size = (max(1, original_size[0] // factor), max(1, original_size[1] // factor))
+        small_size = (max(1, int(original_size[0] // factor)), max(1, int(original_size[1] // factor)))
         downsampled = image.resize(small_size, Image.Resampling.NEAREST)
 
         # Upsample back to original size

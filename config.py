@@ -12,14 +12,14 @@ CONFIG = {
     # Paths
     "dataset_path": os.path.join(BASE_DIR, "dataset/VisDrone2019-DET-train/VisDrone2019-DET-train/images/"),
     "results_path": os.path.join(BASE_DIR, "results/"),
-    "n_images_inference": 1000,  # Number of images for distribution inference
+    "n_images_inference": 100,   # Number of images for distribution inference
     "n_images_evaluation": 50,   # Number of images for degradation evaluation
 
     # Random seed for reproducibility
     "random_seed": 42,
 
     # Batch processing
-    "batch_size": 32,
+    "batch_size": 512,
 
     # Image preprocessing
     "image_size": 224,  # Resize images to this size (224 for ResNet/VGG, 518 for DinoV2)
@@ -29,10 +29,12 @@ CONFIG = {
 
     # Layer configurations for feature extraction
     "layer_configs": [
+        {"name": "single_layer_7", "layers": [7]},
         {"name": "single_layer_8", "layers": [8]},
         {"name": "single_layer_9", "layers": [9]},
         {"name": "single_layer_10", "layers": [10]},
-        {"name": "aggregated_11_to_15", "layers": [11, 12, 13, 14, 15]},
+        {"name": "aggregated_8_to_10", "layers": [8, 9, 10]},
+        {"name": "aggregated_7_to_9", "layers": [7, 8, 9]},
     ],
 
     # Feature transformation modes
@@ -50,26 +52,26 @@ CONFIG = {
     ],
 
     # Distance metrics to evaluate
-    "distance_metrics": ["fid", "kid", "cmmd"],
+    "distance_metrics": ["fid", "cmmd"],
 
-    # Degradation configurations (ordered by increasing severity)
+    # Degradation configurations (ordered by increasing severity, progressive steps)
     "degradations": {
         "blur": {
             "type": "gaussian_blur",
-            "levels": [1, 3, 5, 7, 9],  # sigma values
+            "levels": [0.1, 0.2, 0.3, 0.5, 0.7, 1, 1.3, 1.6, 2, 2.5, 3],  # sigma values
         },
         "blur_contrast": {
             "type": "blur_plus_contrast",
-            "blur_levels": [1, 3, 5],
-            "contrast_factors": [0.8, 0.6, 0.4],
+            "blur_levels": [0.1, 0.3, 0.5, 0.8, 1, 1.5],
+            "contrast_factors": [0.95, 0.9, 0.85, 0.8, 0.75, 0.7],
         },
         "noise": {
             "type": "gaussian_noise",
-            "std_levels": [5, 15, 30, 50, 70],  # on 0-255 scale
+            "std_levels": [1, 2, 3, 5, 7, 9, 12, 15, 18, 22, 26, 30],  # on 0-255 scale
         },
         "aliasing": {
             "type": "downsample_upsample",
-            "factors": [2, 4, 6, 8],
+            "factors": [1.1, 1.2, 1.3, 1.5, 1.7, 2, 2.3, 2.7, 3],
         },
     },
 
@@ -90,6 +92,7 @@ BACKBONE_CONFIGS = {
         "input_size": 224,
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
+        "total_layers": 10,  # 10 étapes principales: conv1, bn1, relu, maxpool, layer1-4, avgpool, fc
         # Layer indices correspond to ResNet blocks
         "extractable_layers": {
             1: "conv1",
@@ -105,6 +108,7 @@ BACKBONE_CONFIGS = {
         },
         # Named layers for hook registration
         "layer_names": {
+            7: "layer3",      # Third conv block (1024 channels)
             8: "layer4",      # Last conv block (2048 channels)
             9: "avgpool",     # Global average pooling
             10: "fc",         # Fully connected
@@ -121,11 +125,13 @@ BACKBONE_CONFIGS = {
         "input_size": 224,
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
+        "total_layers": 19,  # 16 couches conv + 3 couches FC = 19 couches de poids
         "layer_names": {
-            8: "features.25",   # Conv layer
-            9: "features.27",   # Conv layer
-            10: "features.29",  # Conv layer
-            11: "features.31",  # Conv layer
+            7: "features.23",   # Conv layer (block 4, last conv)
+            8: "features.25",   # Conv layer (block 5, 1st conv)
+            9: "features.27",   # Conv layer (block 5, 2nd conv)
+            10: "features.29",  # Conv layer (block 5, 3rd conv)
+            11: "features.31",  # Conv layer (block 5, 4th conv)
             12: "features.33",  # Conv layer
             13: "features.35",  # Conv layer
             14: "classifier.0", # First FC
@@ -138,8 +144,10 @@ BACKBONE_CONFIGS = {
         "input_size": 518,  # DinoV2 uses 518x518
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
+        "total_layers": 12,  # 12 blocs transformer (blocks.0 à blocks.11)
         # For DinoV2, layers refer to transformer blocks
         "layer_names": {
+            7: "blocks.7",
             8: "blocks.8",
             9: "blocks.9",
             10: "blocks.10",
@@ -148,6 +156,34 @@ BACKBONE_CONFIGS = {
             13: "blocks.7",
             14: "blocks.6",
             15: "blocks.5",
+        },
+    },
+    "sd_vae": {
+        "model_name": "sd_vae",
+        "weights": "stabilityai/sd-vae-ft-mse",
+        "input_size": 256,
+        "normalize_mean": [0.5, 0.5, 0.5],
+        "normalize_std": [0.5, 0.5, 0.5],
+        "total_layers": 4,  # 4 down blocks dans l'encodeur
+        "layer_names": {
+            7: "encoder.down_blocks.0",   # Down block 1 (128 ch, res/2)
+            8: "encoder.down_blocks.1",   # Down block 2 (256 ch, res/4)
+            9: "encoder.down_blocks.2",   # Down block 3 (512 ch, res/8)
+            10: "encoder.down_blocks.3",  # Down block 4 (512 ch)
+        },
+    },
+    "lpips_vgg": {
+        "model_name": "lpips_vgg",
+        "weights": "vgg",
+        "input_size": 224,
+        "normalize_mean": [0.5, 0.5, 0.5],
+        "normalize_std": [0.5, 0.5, 0.5],
+        "total_layers": 5,  # 5 slices VGG dans LPIPS
+        "layer_names": {
+            7: "net.slice1",   # LPIPS layer 0 (relu1_2, 64 ch)
+            8: "net.slice2",   # LPIPS layer 1 (relu2_2, 128 ch)
+            9: "net.slice3",   # LPIPS layer 2 (relu3_3, 256 ch)
+            10: "net.slice4",  # LPIPS layer 3 (relu4_3, 512 ch)
         },
     },
 }
