@@ -1,15 +1,13 @@
 """
-Distance metrics module for comparing feature distributions.
-Implements FID, KID, and CMMD (MMD with RBF kernel).
+Distance metrics module.
+Implements FID and MMD (Maximum Mean Discrepancy) metrics for distribution comparison.
 """
 
 import logging
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Union, Optional
 
 import numpy as np
 from scipy import linalg
-
-from config import CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -17,403 +15,316 @@ logger = logging.getLogger(__name__)
 def compute_fid(
     features_ref: np.ndarray,
     features_test: np.ndarray,
-    eps: float = 1e-6,
+    max_dim: int = 10000,
 ) -> float:
     """
-    Compute Fréchet Inception Distance (FID) between two feature sets.
+    Compute Fréchet Inception Distance (FID) between reference and test features.
 
-    FID = ||mu1 - mu2||^2 + Tr(Sigma1 + Sigma2 - 2*sqrt(Sigma1 @ Sigma2))
+    FID assumes both distributions are Gaussian and measures the distance between
+    them using mean and covariance statistics:
+
+    FID = ||μ_ref - μ_test||² + Tr(Σ_ref + Σ_test - 2(Σ_ref Σ_test)^{1/2})
+
+    For very high-dimensional features (> max_dim), automatically applies PCA
+    to reduce memory usage.
 
     Args:
-        features_ref: Reference features (N1, D)
-        features_test: Test features (N2, D)
-        eps: Small constant for numerical stability
+        features_ref: Reference features (N_ref, D)
+        features_test: Test features (N_test, D)
+        max_dim: Maximum dimension before applying PCA reduction
 
     Returns:
-        FID score (lower is better, 0 means identical distributions)
+        FID score (lower = more similar distributions)
     """
-    # Compute statistics
-    mu1 = np.mean(features_ref, axis=0)
-    mu2 = np.mean(features_test, axis=0)
+    n_ref, dim_orig = features_ref.shape
+    n_test, _ = features_test.shape
 
-    sigma1 = np.cov(features_ref, rowvar=False)
-    sigma2 = np.cov(features_test, rowvar=False)
+    # If dimension is too high, apply PCA to make FID computation tractable
+    if dim_orig > max_dim:
+        logger.warning(
+            f"Dimension {dim_orig} too high for FID covariance computation. "
+            f"Applying PCA to reduce to {max_dim} dimensions."
+        )
+        from sklearn.decomposition import PCA
+        pca_dim = min(max_dim, n_ref - 1, n_test - 1, dim_orig)
+        pca = PCA(n_components=pca_dim)
+        features_ref = pca.fit_transform(features_ref)
+        features_test = pca.transform(features_test)
+        logger.info(f"FID: reduced to {pca_dim} dimensions (explained variance: {pca.explained_variance_ratio_.sum():.4f})")
+
+    # Compute statistics (use float32 to save memory)
+    mu_ref = np.mean(features_ref, axis=0, dtype=np.float32)
+    mu_test = np.mean(features_test, axis=0, dtype=np.float32)
+
+    # Compute covariance matrices (memory-efficient)
+    # Center the data first
+    features_ref_centered = features_ref - mu_ref
+    features_test_centered = features_test - mu_test
+
+    # Cov = (1/(n-1)) * X^T @ X
+    sigma_ref = (features_ref_centered.T @ features_ref_centered) / (n_ref - 1)
+    sigma_test = (features_test_centered.T @ features_test_centered) / (n_test - 1)
 
     # Handle 1D case
-    if sigma1.ndim == 0:
-        sigma1 = np.array([[sigma1]])
-        sigma2 = np.array([[sigma2]])
+    if sigma_ref.ndim == 0:
+        sigma_ref = np.array([[sigma_ref]], dtype=np.float32)
+    if sigma_test.ndim == 0:
+        sigma_test = np.array([[sigma_test]], dtype=np.float32)
+
+    # Add small regularization for numerical stability
+    eps = 1e-6
+    dim = sigma_ref.shape[0]
+    sigma_ref = sigma_ref + np.eye(dim, dtype=np.float32) * eps
+    sigma_test = sigma_test + np.eye(dim, dtype=np.float32) * eps
 
     # Compute squared difference of means
-    diff = mu1 - mu2
+    diff = mu_ref - mu_test
     mean_diff_sq = np.sum(diff ** 2)
 
-    # Compute sqrt(Sigma1 @ Sigma2) using matrix square root
-    # Add small regularization for numerical stability
-    sigma1 = sigma1 + np.eye(sigma1.shape[0]) * eps
-    sigma2 = sigma2 + np.eye(sigma2.shape[0]) * eps
-
+    # Compute sqrt of product of covariances: (Σ_ref Σ_test)^{1/2}
+    # Use SVD for numerical stability
     try:
-        # Compute matrix square root
-        covmean = linalg.sqrtm(sigma1 @ sigma2)
+        covmean, _ = linalg.sqrtm(sigma_ref @ sigma_test, disp=False)
 
-        # Handle numerical issues - sqrtm may return complex numbers
+        # Check for imaginary components (numerical errors)
         if np.iscomplexobj(covmean):
             if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
-                logger.warning("Complex values in sqrtm computation")
+                logger.warning("Imaginary component detected in covmean, taking real part")
             covmean = covmean.real
-
-        # Compute trace term
-        trace_term = np.trace(sigma1) + np.trace(sigma2) - 2 * np.trace(covmean)
-
-        # FID score
-        fid = mean_diff_sq + trace_term
-
-        # Ensure non-negative (numerical errors can cause small negatives)
-        fid = max(0, fid)
-
     except Exception as e:
-        logger.error(f"Error computing FID: {e}")
-        # Fallback to simpler approximation
-        fid = mean_diff_sq + np.trace(sigma1) + np.trace(sigma2)
+        logger.warning(f"Matrix sqrt failed: {e}, using alternative computation")
+        # Fallback: eigendecomposition
+        eigvals, eigvecs = np.linalg.eigh(sigma_ref @ sigma_test)
+        eigvals = np.maximum(eigvals, 0)  # Ensure non-negative
+        covmean = eigvecs @ np.diag(np.sqrt(eigvals)) @ eigvecs.T
+
+    # FID formula
+    fid = mean_diff_sq + np.trace(sigma_ref + sigma_test - 2 * covmean)
 
     return float(fid)
 
 
-def compute_fid_from_statistics(
-    mu1: np.ndarray,
-    sigma1: np.ndarray,
-    mu2: np.ndarray,
-    sigma2: np.ndarray,
-    eps: float = 1e-6,
-) -> float:
-    """
-    Compute FID directly from pre-computed statistics.
-
-    Args:
-        mu1: Mean of reference distribution (D,)
-        sigma1: Covariance of reference distribution (D, D)
-        mu2: Mean of test distribution (D,)
-        sigma2: Covariance of test distribution (D, D)
-        eps: Small constant for numerical stability
-
-    Returns:
-        FID score
-    """
-    diff = mu1 - mu2
-    mean_diff_sq = np.sum(diff ** 2)
-
-    # Regularize
-    sigma1 = sigma1 + np.eye(sigma1.shape[0]) * eps
-    sigma2 = sigma2 + np.eye(sigma2.shape[0]) * eps
-
-    try:
-        covmean = linalg.sqrtm(sigma1 @ sigma2)
-        if np.iscomplexobj(covmean):
-            covmean = covmean.real
-
-        trace_term = np.trace(sigma1) + np.trace(sigma2) - 2 * np.trace(covmean)
-        fid = mean_diff_sq + trace_term
-        fid = max(0, fid)
-
-    except Exception:
-        fid = mean_diff_sq + np.trace(sigma1) + np.trace(sigma2)
-
-    return float(fid)
-
-
-def polynomial_kernel(x: np.ndarray, y: np.ndarray, degree: int = 3, c: float = 1.0) -> np.ndarray:
-    """
-    Compute polynomial kernel: k(x, y) = (x.y / d + c)^degree
-
-    Args:
-        x: First set of features (N1, D)
-        y: Second set of features (N2, D)
-        degree: Polynomial degree
-        c: Constant term
-
-    Returns:
-        Kernel matrix (N1, N2)
-    """
-    d = x.shape[1]
-    return (x @ y.T / d + c) ** degree
-
-
-def rbf_kernel(x: np.ndarray, y: np.ndarray, sigma: float = None) -> np.ndarray:
-    """
-    Compute RBF (Gaussian) kernel: k(x, y) = exp(-||x-y||^2 / (2*sigma^2))
-
-    Args:
-        x: First set of features (N1, D)
-        y: Second set of features (N2, D)
-        sigma: Bandwidth parameter (auto-computed if None)
-
-    Returns:
-        Kernel matrix (N1, N2)
-    """
-    # Compute pairwise squared distances
-    # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 * x.y
-    x_sqnorms = np.sum(x ** 2, axis=1, keepdims=True)  # (N1, 1)
-    y_sqnorms = np.sum(y ** 2, axis=1, keepdims=True)  # (N2, 1)
-    sq_dists = x_sqnorms + y_sqnorms.T - 2 * x @ y.T  # (N1, N2)
-    sq_dists = np.maximum(sq_dists, 0)  # Numerical stability
-
-    # Auto-compute sigma using median heuristic if not provided
-    if sigma is None:
-        # Use median of distances as bandwidth
-        median_dist = np.median(np.sqrt(sq_dists + 1e-10))
-        sigma = median_dist if median_dist > 0 else 1.0
-
-    return np.exp(-sq_dists / (2 * sigma ** 2))
-
-
-def compute_mmd_squared(
+def compute_mmd(
     features_ref: np.ndarray,
     features_test: np.ndarray,
-    kernel_fn: Callable = None,
-    biased: bool = False,
+    kernel: str = "rbf",
+    gamma: Optional[float] = None,
+    K_ref_ref_cached: Optional[np.ndarray] = None,
 ) -> float:
     """
-    Compute Maximum Mean Discrepancy squared.
+    Compute Maximum Mean Discrepancy (MMD) between reference and test features.
 
-    MMD^2 = E[k(x,x')] + E[k(y,y')] - 2*E[k(x,y)]
-
-    Args:
-        features_ref: Reference features (N1, D)
-        features_test: Test features (N2, D)
-        kernel_fn: Kernel function (default: polynomial)
-        biased: Whether to use biased estimator
-
-    Returns:
-        MMD^2 score
-    """
-    if kernel_fn is None:
-        kernel_fn = polynomial_kernel
-
-    n1 = features_ref.shape[0]
-    n2 = features_test.shape[0]
-
-    # Compute kernel matrices
-    K_xx = kernel_fn(features_ref, features_ref)
-    K_yy = kernel_fn(features_test, features_test)
-    K_xy = kernel_fn(features_ref, features_test)
-
-    if biased:
-        # Biased estimator (includes diagonal)
-        mmd2 = np.mean(K_xx) + np.mean(K_yy) - 2 * np.mean(K_xy)
-    else:
-        # Unbiased estimator (excludes diagonal for K_xx and K_yy)
-        # Sum of off-diagonal elements
-        sum_xx = np.sum(K_xx) - np.trace(K_xx)
-        sum_yy = np.sum(K_yy) - np.trace(K_yy)
-        sum_xy = np.sum(K_xy)
-
-        mmd2 = (
-            sum_xx / (n1 * (n1 - 1))
-            + sum_yy / (n2 * (n2 - 1))
-            - 2 * sum_xy / (n1 * n2)
-        )
-
-    return float(max(0, mmd2))
-
-
-def compute_kid(
-    features_ref: np.ndarray,
-    features_test: np.ndarray,
-    num_subsets: int = None,
-    subset_size: int = None,
-) -> Tuple[float, float]:
-    """
-    Compute Kernel Inception Distance (KID).
-
-    KID uses polynomial kernel and computes MMD over multiple subsets
-    to estimate mean and variance.
+    MMD measures the distance between two distributions using kernel embeddings:
+    MMD² = E[k(x,x')] + E[k(y,y')] - 2E[k(x,y)]
 
     Args:
-        features_ref: Reference features (N1, D)
-        features_test: Test features (N2, D)
-        num_subsets: Number of subsets for variance estimation
-        subset_size: Size of each subset
+        features_ref: Reference features (N_ref, D)
+        features_test: Test features (N_test, D)
+        kernel: Kernel type ('rbf' or 'linear')
+        gamma: RBF kernel bandwidth. If None, use median heuristic.
+        K_ref_ref_cached: Pre-computed K_ref_ref matrix (optional, for speedup)
 
     Returns:
-        Tuple of (mean_kid, std_kid)
+        MMD² score (lower = more similar distributions)
     """
-    num_subsets = num_subsets or CONFIG.get("kid_subsets", 100)
-    subset_size = subset_size or CONFIG.get("kid_subset_size", 50)
+    n_ref = features_ref.shape[0]
+    n_test = features_test.shape[0]
 
-    # Adjust subset size if necessary
-    subset_size = min(subset_size, features_ref.shape[0], features_test.shape[0])
+    if kernel == "rbf":
+        # Compute gamma using median heuristic if not provided
+        if gamma is None:
+            # Sample pairs to estimate median distance
+            n_samples = min(1000, n_ref + n_test)
+            combined = np.vstack([features_ref, features_test])
+            indices = np.random.choice(combined.shape[0], n_samples, replace=False)
+            sample = combined[indices]
 
-    n1, n2 = features_ref.shape[0], features_test.shape[0]
-    scores = []
+            # Pairwise squared distances
+            from scipy.spatial.distance import pdist
+            pairwise_sq_dists = pdist(sample, metric="sqeuclidean")
+            median_dist_sq = np.median(pairwise_sq_dists)
+            gamma = 1.0 / (2 * median_dist_sq + 1e-8)
+            logger.debug(f"MMD: using gamma={gamma:.6f} from median heuristic")
 
-    rng = np.random.RandomState(CONFIG["random_seed"])
+        # Compute RBF kernel matrices
+        def rbf_kernel(X, Y):
+            """RBF kernel: k(x,y) = exp(-gamma * ||x-y||²)"""
+            # Compute pairwise squared distances
+            X_sq = np.sum(X ** 2, axis=1, keepdims=True)  # (N, 1)
+            Y_sq = np.sum(Y ** 2, axis=1, keepdims=True)  # (M, 1)
+            sq_dists = X_sq + Y_sq.T - 2 * X @ Y.T  # (N, M)
+            return np.exp(-gamma * sq_dists)
 
-    for _ in range(num_subsets):
-        # Random subsets
-        idx1 = rng.choice(n1, subset_size, replace=False)
-        idx2 = rng.choice(n2, subset_size, replace=False)
-
-        subset_ref = features_ref[idx1]
-        subset_test = features_test[idx2]
-
-        # Compute MMD with polynomial kernel
-        mmd2 = compute_mmd_squared(subset_ref, subset_test, polynomial_kernel, biased=False)
-        scores.append(mmd2)
-
-    mean_kid = np.mean(scores)
-    std_kid = np.std(scores)
-
-    return float(mean_kid), float(std_kid)
-
-
-def compute_cmmd(
-    features_ref: np.ndarray,
-    features_test: np.ndarray,
-    sigma: float = None,
-) -> float:
-    """
-    Compute CMMD (MMD with RBF kernel).
-
-    Uses median heuristic for bandwidth selection if sigma is not provided.
-
-    Args:
-        features_ref: Reference features (N1, D)
-        features_test: Test features (N2, D)
-        sigma: RBF bandwidth (auto-computed if None)
-
-    Returns:
-        CMMD score
-    """
-    # Auto-compute sigma using median heuristic
-    if sigma is None:
-        # Sample subset for bandwidth estimation if large
-        if features_ref.shape[0] > 1000:
-            idx = np.random.choice(features_ref.shape[0], 1000, replace=False)
-            sample = features_ref[idx]
+        # Use cached K_ref_ref if available (huge speedup!)
+        if K_ref_ref_cached is not None:
+            K_ref_ref = K_ref_ref_cached
         else:
-            sample = features_ref
+            K_ref_ref = rbf_kernel(features_ref, features_ref)
 
-        # Compute pairwise distances (clamp negative values from numerical errors)
-        sq_dists = (
-            np.sum(sample[:, None, :] ** 2, axis=2)
-            + np.sum(sample[None, :, :] ** 2, axis=2)
-            - 2 * sample @ sample.T
-        )
-        dists = np.sqrt(np.maximum(sq_dists, 0))
-        sigma = np.median(dists[dists > 0])
-        if sigma == 0:
-            sigma = 1.0
+        K_test_test = rbf_kernel(features_test, features_test)
+        K_ref_test = rbf_kernel(features_ref, features_test)
 
-    def rbf_kernel_with_sigma(x, y):
-        return rbf_kernel(x, y, sigma=sigma)
+    elif kernel == "linear":
+        # Use cached K_ref_ref if available
+        if K_ref_ref_cached is not None:
+            K_ref_ref = K_ref_ref_cached
+        else:
+            K_ref_ref = features_ref @ features_ref.T
 
-    mmd2 = compute_mmd_squared(features_ref, features_test, rbf_kernel_with_sigma, biased=False)
-    return float(mmd2)
+        K_test_test = features_test @ features_test.T
+        K_ref_test = features_ref @ features_test.T
+    else:
+        raise ValueError(f"Unknown kernel: {kernel}")
+
+    # MMD² unbiased estimator (removing diagonal elements)
+    # E[k(x,x')] where x ≠ x'
+    term1 = (np.sum(K_ref_ref) - np.trace(K_ref_ref)) / (n_ref * (n_ref - 1))
+    term2 = (np.sum(K_test_test) - np.trace(K_test_test)) / (n_test * (n_test - 1))
+    term3 = 2 * np.sum(K_ref_test) / (n_ref * n_test)
+
+    mmd_sq = term1 + term2 - term3
+
+    # MMD² can be slightly negative due to finite sample bias, clip to 0
+    mmd_sq = max(0, mmd_sq)
+
+    return float(mmd_sq)
 
 
 class DistanceMetric:
     """
-    Wrapper class for distance metrics with consistent interface.
+    Wrapper class for distance metrics.
+    Supports FID and MMD (Maximum Mean Discrepancy) distribution-free metrics.
     """
 
-    def __init__(self, metric_name: str):
+    def __init__(
+        self,
+        metric_name: str,
+        distribution_model=None,  # Kept for backward compatibility but unused
+        features_ref: Optional[np.ndarray] = None,
+        kernel: str = "rbf",
+        gamma: Optional[float] = None,
+    ):
         """
         Initialize distance metric.
 
         Args:
-            metric_name: Name of the metric ('fid', 'kid', 'cmmd')
+            metric_name: Name of the metric ('fid' or 'mmd')
+            distribution_model: Unused (kept for backward compatibility)
+            features_ref: Reference features (required for FID/MMD)
+            kernel: Kernel type for MMD ('rbf' or 'linear')
+            gamma: RBF kernel bandwidth for MMD (None = auto via median heuristic)
         """
         self.metric_name = metric_name.lower()
+        self.distribution_model = distribution_model  # Unused
+        self.features_ref = features_ref
+        self.kernel = kernel
+        self.gamma = gamma
 
-        if self.metric_name not in ["fid", "kid", "cmmd"]:
+        valid_metrics = ["fid", "mmd"]
+        if self.metric_name not in valid_metrics:
             raise ValueError(f"Unknown metric: {metric_name}. "
-                           f"Available: fid, kid, cmmd")
+                           f"Available: {', '.join(valid_metrics)}")
 
-    def compute(
-        self,
-        features_ref: np.ndarray,
-        features_test: np.ndarray,
-    ) -> Union[float, Tuple[float, float]]:
+        # Validate requirements
+        if features_ref is None:
+            raise ValueError(f"{metric_name} requires features_ref")
+
+        # Pre-compute and cache K_ref_ref for MMD (huge speedup for multiple evaluations)
+        self.K_ref_ref_cached = None
+        if self.metric_name == "mmd" and features_ref is not None:
+            logger.info("Pre-computing reference kernel matrix for MMD (one-time cost)...")
+            self._precompute_mmd_reference()
+
+    def _precompute_mmd_reference(self):
+        """Pre-compute reference kernel matrix K_ref_ref for MMD to avoid recomputation."""
+        n_ref = self.features_ref.shape[0]
+
+        # Compute gamma if not provided (median heuristic on reference data)
+        if self.kernel == "rbf" and self.gamma is None:
+            n_samples = min(1000, n_ref)
+            indices = np.random.choice(n_ref, n_samples, replace=False)
+            sample = self.features_ref[indices]
+
+            from scipy.spatial.distance import pdist
+            pairwise_sq_dists = pdist(sample, metric="sqeuclidean")
+            median_dist_sq = np.median(pairwise_sq_dists)
+            self.gamma = 1.0 / (2 * median_dist_sq + 1e-8)
+            logger.info(f"MMD: using gamma={self.gamma:.6f} from median heuristic")
+
+        # Compute K_ref_ref once
+        if self.kernel == "rbf":
+            X = self.features_ref
+            X_sq = np.sum(X ** 2, axis=1, keepdims=True)
+            sq_dists = X_sq + X_sq.T - 2 * X @ X.T
+            self.K_ref_ref_cached = np.exp(-self.gamma * sq_dists)
+        elif self.kernel == "linear":
+            self.K_ref_ref_cached = self.features_ref @ self.features_ref.T
+
+        logger.info(f"Reference kernel matrix cached: shape {self.K_ref_ref_cached.shape}")
+
+    def compute(self, features_test: np.ndarray) -> float:
         """
-        Compute the distance metric between two feature sets.
+        Compute the distance metric for test features.
 
         Args:
-            features_ref: Reference features (N1, D)
-            features_test: Test features (N2, D)
+            features_test: Test features (N, D)
 
         Returns:
-            Distance score (or tuple for KID with variance)
+            Distance score (higher = more different from reference)
         """
         if self.metric_name == "fid":
-            return compute_fid(features_ref, features_test)
-        elif self.metric_name == "kid":
-            return compute_kid(features_ref, features_test)
-        elif self.metric_name == "cmmd":
-            return compute_cmmd(features_ref, features_test)
+            return compute_fid(self.features_ref, features_test)
+        elif self.metric_name == "mmd":
+            return compute_mmd(self.features_ref, features_test,
+                             kernel=self.kernel, gamma=self.gamma,
+                             K_ref_ref_cached=self.K_ref_ref_cached)
+        else:
+            raise ValueError(f"Unknown metric: {self.metric_name}")
 
-    def __call__(
-        self,
-        features_ref: np.ndarray,
-        features_test: np.ndarray,
-    ) -> Union[float, Tuple[float, float]]:
+    def __call__(self, features_test: np.ndarray) -> float:
         """Alias for compute()."""
-        return self.compute(features_ref, features_test)
+        return self.compute(features_test)
 
 
-def get_distance_metric(name: str) -> DistanceMetric:
+def get_distance_metric(
+    name: str,
+    distribution_model=None,  # Kept for backward compatibility
+    features_ref: Optional[np.ndarray] = None,
+    kernel: str = "rbf",
+    gamma: Optional[float] = None,
+) -> DistanceMetric:
     """
     Factory function to get a distance metric by name.
 
     Args:
-        name: Metric name ('fid', 'kid', 'cmmd')
+        name: Metric name ('fid' or 'mmd')
+        distribution_model: Unused (kept for backward compatibility)
+        features_ref: Reference features (required for FID/MMD)
+        kernel: Kernel type for MMD ('rbf' or 'linear')
+        gamma: RBF kernel bandwidth for MMD (None = auto via median heuristic)
 
     Returns:
         DistanceMetric instance
     """
-    return DistanceMetric(name)
+    return DistanceMetric(
+        name,
+        distribution_model=distribution_model,
+        features_ref=features_ref,
+        kernel=kernel,
+        gamma=gamma,
+    )
 
 
-def get_metric_score(metric_result: Union[float, Tuple[float, float]]) -> float:
+def get_metric_score(metric_result: Union[float, tuple]) -> float:
     """
-    Extract scalar score from metric result (handles KID tuple).
+    Extract scalar score from metric result.
 
     Args:
-        metric_result: Metric output (float or tuple)
+        metric_result: Metric output (float)
 
     Returns:
         Scalar score
     """
     if isinstance(metric_result, tuple):
-        return metric_result[0]  # Mean for KID
+        return metric_result[0]
     return metric_result
-
-
-def compute_all_metrics(
-    features_ref: np.ndarray,
-    features_test: np.ndarray,
-) -> Dict[str, float]:
-    """
-    Compute all available distance metrics.
-
-    Args:
-        features_ref: Reference features (N1, D)
-        features_test: Test features (N2, D)
-
-    Returns:
-        Dict mapping metric names to scores
-    """
-    results = {}
-
-    # FID
-    results["fid"] = compute_fid(features_ref, features_test)
-
-    # KID
-    kid_mean, kid_std = compute_kid(features_ref, features_test)
-    results["kid"] = kid_mean
-    results["kid_std"] = kid_std
-
-    # CMMD
-    results["cmmd"] = compute_cmmd(features_ref, features_test)
-
-    return results

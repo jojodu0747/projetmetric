@@ -15,7 +15,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
-from config import CONFIG, BACKBONE_CONFIGS, get_config, update_config
+from config import CONFIG, BACKBONE_CONFIGS, get_config, update_config, get_enabled_experiment_configs
 from feature_extraction import FeatureExtractor
 from distribution_modeling import DistributionModel
 from distance_metrics import get_distance_metric, get_metric_score
@@ -26,6 +26,7 @@ from evaluation import (
     evaluate_monotonicity,
 )
 from degradation_generator import BatchDegradationGenerator, DegradationGenerator
+from feature_cache import FeatureCache
 from PIL import Image
 
 # Configure logging
@@ -122,13 +123,56 @@ def extract_all_degraded_features(
     return cache
 
 
+def normalize_metric_config(metric_config):
+    """
+    Normalize metric configuration to dict format.
+
+    Args:
+        metric_config: Either a string (metric name) or dict with 'name' and params
+
+    Returns:
+        Dict with 'name', 'kernel', 'gamma' keys
+    """
+    if isinstance(metric_config, str):
+        return {"name": metric_config, "kernel": "rbf", "gamma": None}
+    else:
+        # Ensure all required keys exist
+        config = metric_config.copy()
+        config.setdefault("kernel", "rbf")
+        config.setdefault("gamma", None)
+        return config
+
+
+def get_metric_identifier(metric_config):
+    """
+    Get a unique identifier string for a metric configuration.
+
+    Args:
+        metric_config: Normalized metric config dict
+
+    Returns:
+        String identifier like "mmd_rbf_auto" or "cmmd_rbf_0.01"
+    """
+    name = metric_config["name"]
+    kernel = metric_config.get("kernel", "rbf")
+    gamma = metric_config.get("gamma")
+
+    if gamma is None:
+        gamma_str = "auto"
+    else:
+        gamma_str = f"{gamma:.4f}".rstrip('0').rstrip('.')
+
+    return f"{name}_{kernel}_{gamma_str}"
+
+
 def evaluate_with_cached_features(
-    reference_features: np.ndarray,
     degraded_features_cache: Dict[str, List[np.ndarray]],
     metric,
 ) -> Dict[str, Dict]:
     """
     Evaluate metric using pre-extracted cached features.
+    For GMM-based metrics: uses internal distribution model.
+    For FID/MMD/CMMD: uses internal reference features.
     """
     results = {}
 
@@ -138,7 +182,7 @@ def evaluate_with_cached_features(
         scores = []
 
         for features in features_list:
-            score = metric.compute(reference_features, features)
+            score = metric.compute(features)
             score = get_metric_score(score)
             scores.append(score)
 
@@ -378,71 +422,182 @@ def run_experiment():
     if len(reference_images) < 100:
         logger.warning(f"Only {len(reference_images)} reference images available")
 
+    # Get enabled layers for current backbone from ENABLED_LAYERS
+    current_backbone = CONFIG["backbone"]
+    enabled_layers = [
+        cfg["layer"]
+        for cfg in get_enabled_experiment_configs()
+        if cfg["backbone"] == current_backbone
+    ]
+
+    # Create layer configs from enabled layers
+    valid_layer_configs = [
+        {"name": f"single_layer_{layer_idx}", "layers": [layer_idx]}
+        for layer_idx in enabled_layers
+    ]
+
+    logger.info(f"Backbone {current_backbone}: {len(valid_layer_configs)} enabled layers: {enabled_layers}")
+
     results = []
     total_configs = (
-        len(CONFIG["layer_configs"])
+        len(valid_layer_configs)
         * len(CONFIG["feature_transforms"])
-        * len(CONFIG["distribution_models"])
         * len(CONFIG["distance_metrics"])
     )
     config_idx = 0
 
+    # Activation cache
+    cache = FeatureCache()
+    backbone = CONFIG["backbone"]
+    ref_id = cache.image_set_id(reference_images)
+    eval_id = cache.image_set_id(eval_images)
+    deg_generator = DegradationGenerator(CONFIG["degradations"])
+
     # Iterate over all configurations
-    for layer_config in CONFIG["layer_configs"]:
-        for transform_config in CONFIG["feature_transforms"]:
-            # Create feature extractor
-            logger.info(
-                f"Creating extractor: backbone={CONFIG['backbone']}, "
-                f"layers={layer_config['name']}, transform={transform_config['name']}"
-            )
+    for layer_config in valid_layer_configs:
+        layer_name = layer_config["name"]
+        is_single = layer_name.startswith("single_layer_")
 
-            extractor = FeatureExtractor(
-                backbone=CONFIG["backbone"],
-                layer_config=layer_config,
-                transform_config=transform_config,
-            )
+        use_cache = (
+            is_single
+            and cache.has_reference(backbone, layer_name, ref_id)
+            and cache.has_all_degraded(backbone, layer_name, eval_id, CONFIG["degradations"])
+        )
 
-            try:
-                # Extract reference features (fit PCA if needed)
-                logger.info("Extracting reference features...")
-                reference_features = extractor.extract(
-                    reference_images, fit_transform=True
+        if use_cache:
+            # ── CACHE HIT ──
+            logger.info(f"CACHE HIT for {backbone}/{layer_name} — skipping extraction")
+            ref_dir = cache._ref_dir(backbone, layer_name, ref_id)
+            eval_dir = cache._eval_dir(backbone, layer_name, eval_id)
+            ref_activations = cache.load_activations(ref_dir)
+
+            for transform_config in CONFIG["feature_transforms"]:
+                logger.info(f"Post-processing cached activations: transform={transform_config['name']}")
+
+                reference_features, pca_model = cache.process_activations(
+                    ref_activations, transform_config, fit_pca=True
                 )
                 logger.info(f"Reference features shape: {reference_features.shape}")
 
-                # Pre-extract features for all degradation levels (cache for reuse)
-                logger.info("Pre-extracting degraded features (cached for all metrics)...")
-                degraded_features_cache = extract_all_degraded_features(
-                    eval_images, extractor, CONFIG["degradations"]
+                degraded_features_cache = {}
+                for deg_type in CONFIG["degradations"].keys():
+                    num_levels = deg_generator.get_num_levels(deg_type)
+                    features_list = []
+                    for level in range(num_levels):
+                        deg_act = cache.load_degraded_activations(eval_dir, deg_type, level)
+                        deg_feat, _ = cache.process_activations(
+                            deg_act, transform_config, pca_model=pca_model
+                        )
+                        features_list.append(deg_feat)
+                    degraded_features_cache[deg_type] = features_list
+
+                # No GMM fitting needed for MMD/FID (distribution-free metrics)
+                for metric_config in CONFIG["distance_metrics"]:
+                    config_idx += 1
+
+                    # Normalize metric config to dict format
+                    metric_cfg = normalize_metric_config(metric_config)
+                    metric_name = metric_cfg["name"]
+                    metric_id = get_metric_identifier(metric_cfg)
+
+                    logger.info(
+                        f"Evaluating config {config_idx}/{total_configs}: "
+                        f"metric={metric_id}"
+                    )
+
+                    # Create MMD/FID metric with reference features
+                    metric = get_distance_metric(
+                        metric_name,
+                        features_ref=reference_features,
+                        kernel=metric_cfg["kernel"],
+                        gamma=metric_cfg["gamma"],
+                    )
+
+                    eval_results = evaluate_with_cached_features(
+                        degraded_features_cache, metric
+                    )
+
+                    monotonicity = {
+                        deg_type: res["monotonicity"]
+                        for deg_type, res in eval_results.items()
+                    }
+                    detailed_scores = {
+                        deg_type: res["scores"]
+                        for deg_type, res in eval_results.items()
+                    }
+
+                    result = {
+                        "layers": layer_config["name"],
+                        "transform": transform_config["name"],
+                        "distribution": "empirical",  # No distribution model (MMD/FID are distribution-free)
+                        "metric": metric_id,
+                        "monotonicity": monotonicity,
+                        "detailed_scores": detailed_scores,
+                        "mean_monotonicity": compute_aggregate_monotonicity(
+                            monotonicity
+                        ),
+                    }
+                    results.append(result)
+                    logger.info(
+                        f"Mean monotonicity: {result['mean_monotonicity']:.4f}"
+                    )
+
+        else:
+            # ── CACHE MISS: standard extraction ──
+            for transform_config in CONFIG["feature_transforms"]:
+                logger.info(
+                    f"Creating extractor: backbone={backbone}, "
+                    f"layers={layer_config['name']}, transform={transform_config['name']}"
                 )
 
-                for dist_config in CONFIG["distribution_models"]:
-                    # Fit distribution model
-                    logger.info(f"Fitting distribution model: {dist_config['name']}")
-                    model = DistributionModel(dist_config)
-                    model.fit(reference_features)
+                extractor = FeatureExtractor(
+                    backbone=backbone,
+                    layer_config=layer_config,
+                    transform_config=transform_config,
+                )
 
-                    for metric_name in CONFIG["distance_metrics"]:
+                try:
+                    logger.info("Extracting reference features...")
+                    reference_features = extractor.extract(
+                        reference_images, fit_transform=True
+                    )
+                    logger.info(f"Reference features shape: {reference_features.shape}")
+
+                    logger.info("Pre-extracting degraded features (cached for all metrics)...")
+                    degraded_features_cache = extract_all_degraded_features(
+                        eval_images, extractor, CONFIG["degradations"]
+                    )
+
+                    # No GMM fitting needed for MMD/FID (distribution-free metrics)
+                    for metric_config in CONFIG["distance_metrics"]:
                         config_idx += 1
+
+                        # Normalize metric config to dict format
+                        metric_cfg = normalize_metric_config(metric_config)
+                        metric_name = metric_cfg["name"]
+                        metric_id = get_metric_identifier(metric_cfg)
+
                         logger.info(
                             f"Evaluating config {config_idx}/{total_configs}: "
-                            f"metric={metric_name}"
+                            f"metric={metric_id}"
                         )
 
-                        metric = get_distance_metric(metric_name)
+                        # Create MMD/FID metric with reference features
+                        metric = get_distance_metric(
+                            metric_name,
+                            features_ref=reference_features,
+                            kernel=metric_cfg["kernel"],
+                            gamma=metric_cfg["gamma"],
+                        )
 
-                        # Evaluate using cached features
                         eval_results = evaluate_with_cached_features(
-                            reference_features, degraded_features_cache, metric
+                            degraded_features_cache, metric
                         )
 
-                        # Extract monotonicity scores
                         monotonicity = {
                             deg_type: res["monotonicity"]
                             for deg_type, res in eval_results.items()
                         }
-
-                        # Extract detailed scores for plotting
                         detailed_scores = {
                             deg_type: res["scores"]
                             for deg_type, res in eval_results.items()
@@ -451,8 +606,8 @@ def run_experiment():
                         result = {
                             "layers": layer_config["name"],
                             "transform": transform_config["name"],
-                            "distribution": dist_config["name"],
-                            "metric": metric_name,
+                            "distribution": "empirical",  # No distribution model (MMD/FID are distribution-free)
+                            "metric": metric_id,
                             "monotonicity": monotonicity,
                             "detailed_scores": detailed_scores,
                             "mean_monotonicity": compute_aggregate_monotonicity(
@@ -460,13 +615,12 @@ def run_experiment():
                             ),
                         }
                         results.append(result)
-
                         logger.info(
                             f"Mean monotonicity: {result['mean_monotonicity']:.4f}"
                         )
 
-            finally:
-                extractor.cleanup()
+                finally:
+                    extractor.cleanup()
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -502,69 +656,183 @@ def run_medium_experiment():
     eval_set = set(eval_images)
     reference_images = [p for p in reference_images if p not in eval_set]
 
-    # Medium mode: only keep transforms that produce low-dimensional features
-    # raw → 2048 dims (sqrtm too slow), gram_only → 500K dims (OOM on covariance)
-    # Only gram_pca (10 dims) is tractable for FID/covariance computations
+    # Medium mode: only keep transforms that use Gram (works for MMD)
+    # raw → 2048 dims (too high for MMD), gram transforms are OK
     medium_transforms = [
-        t for t in CONFIG["feature_transforms"] if t["name"] == "gram_pca"
-    ]
-    # Skip KDE (slow cross-validation) and keep both GMMs
-    medium_distributions = [
-        d for d in CONFIG["distribution_models"] if d["type"] != "kde"
+        t for t in CONFIG["feature_transforms"] if t.get("use_gram", False)
     ]
 
+    # Get enabled layers for current backbone from ENABLED_LAYERS
+    current_backbone = CONFIG["backbone"]
+    enabled_layers = [
+        cfg["layer"]
+        for cfg in get_enabled_experiment_configs()
+        if cfg["backbone"] == current_backbone
+    ]
+
+    # Create layer configs from enabled layers
+    valid_layer_configs = [
+        {"name": f"single_layer_{layer_idx}", "layers": [layer_idx]}
+        for layer_idx in enabled_layers
+    ]
+
+    logger.info(f"Backbone {current_backbone}: {len(valid_layer_configs)} enabled layers: {enabled_layers}")
+
     total_configs = (
-        len(CONFIG["layer_configs"])
+        len(valid_layer_configs)
         * len(medium_transforms)
-        * len(medium_distributions)
         * len(CONFIG["distance_metrics"])
     )
-    logger.info(f"Medium mode: {total_configs} configurations "
-                f"(vs {len(CONFIG['layer_configs']) * len(CONFIG['feature_transforms']) * len(CONFIG['distribution_models']) * len(CONFIG['distance_metrics'])} in full)")
+    logger.info(f"Medium mode: {total_configs} configurations (MMD/FID only, no GMM)")
 
     results = []
     config_idx = 0
 
-    for layer_config in CONFIG["layer_configs"]:
-        for transform_config in medium_transforms:
-            logger.info(
-                f"Creating extractor: backbone={CONFIG['backbone']}, "
-                f"layers={layer_config['name']}, transform={transform_config['name']}"
-            )
+    # Activation cache
+    cache = FeatureCache()
+    backbone = CONFIG["backbone"]
+    ref_id = cache.image_set_id(reference_images)
+    eval_id = cache.image_set_id(eval_images)
+    deg_generator = DegradationGenerator(CONFIG["degradations"])
 
-            extractor = FeatureExtractor(
-                backbone=CONFIG["backbone"],
-                layer_config=layer_config,
-                transform_config=transform_config,
-            )
+    for layer_config in valid_layer_configs:
+        layer_name = layer_config["name"]
+        is_single = layer_name.startswith("single_layer_")
 
-            try:
-                logger.info("Extracting reference features...")
-                reference_features = extractor.extract(
-                    reference_images, fit_transform=True
+        # Check activation cache (only for single-layer configs)
+        use_cache = (
+            is_single
+            and cache.has_reference(backbone, layer_name, ref_id)
+            and cache.has_all_degraded(backbone, layer_name, eval_id, CONFIG["degradations"])
+        )
+
+        if use_cache:
+            # ── CACHE HIT: load raw activations, post-process per transform ──
+            logger.info(f"CACHE HIT for {backbone}/{layer_name} — skipping extraction")
+            ref_dir = cache._ref_dir(backbone, layer_name, ref_id)
+            eval_dir = cache._eval_dir(backbone, layer_name, eval_id)
+            ref_activations = cache.load_activations(ref_dir)
+
+            for transform_config in medium_transforms:
+                logger.info(f"Post-processing cached activations: transform={transform_config['name']}")
+
+                reference_features, pca_model = cache.process_activations(
+                    ref_activations, transform_config, fit_pca=True
                 )
                 logger.info(f"Reference features shape: {reference_features.shape}")
 
-                logger.info("Pre-extracting degraded features...")
-                degraded_features_cache = extract_all_degraded_features(
-                    eval_images, extractor, CONFIG["degradations"]
+                # Build degraded features from cached activations
+                degraded_features_cache = {}
+                for deg_type in CONFIG["degradations"].keys():
+                    num_levels = deg_generator.get_num_levels(deg_type)
+                    features_list = []
+                    for level in range(num_levels):
+                        deg_act = cache.load_degraded_activations(eval_dir, deg_type, level)
+                        deg_feat, _ = cache.process_activations(
+                            deg_act, transform_config, pca_model=pca_model
+                        )
+                        features_list.append(deg_feat)
+                    degraded_features_cache[deg_type] = features_list
+
+                # No GMM fitting needed for MMD/FID (distribution-free metrics)
+                for metric_config in CONFIG["distance_metrics"]:
+                    config_idx += 1
+
+                    # Normalize metric config to dict format
+                    metric_cfg = normalize_metric_config(metric_config)
+                    metric_name = metric_cfg["name"]
+                    metric_id = get_metric_identifier(metric_cfg)
+
+                    logger.info(
+                        f"Evaluating config {config_idx}/{total_configs}: "
+                        f"metric={metric_id}"
+                    )
+
+                    # Create MMD/FID metric with reference features
+                    metric = get_distance_metric(
+                        metric_name,
+                        features_ref=reference_features,
+                        kernel=metric_cfg["kernel"],
+                        gamma=metric_cfg["gamma"],
+                    )
+                    eval_results = evaluate_with_cached_features(
+                        degraded_features_cache, metric
+                    )
+
+                    monotonicity = {
+                        deg_type: res["monotonicity"]
+                        for deg_type, res in eval_results.items()
+                    }
+                    detailed_scores = {
+                        deg_type: res["scores"]
+                        for deg_type, res in eval_results.items()
+                    }
+
+                    result = {
+                        "layers": layer_config["name"],
+                        "transform": transform_config["name"],
+                        "distribution": "empirical",  # No distribution model (MMD/FID are distribution-free)
+                        "metric": metric_id,
+                        "monotonicity": monotonicity,
+                        "detailed_scores": detailed_scores,
+                        "mean_monotonicity": compute_aggregate_monotonicity(
+                            monotonicity
+                        ),
+                    }
+                    results.append(result)
+                    logger.info(
+                        f"Mean monotonicity: {result['mean_monotonicity']:.4f}"
+                    )
+
+        else:
+            # ── CACHE MISS: standard extraction ──
+            for transform_config in medium_transforms:
+                logger.info(
+                    f"Creating extractor: backbone={backbone}, "
+                    f"layers={layer_config['name']}, transform={transform_config['name']}"
                 )
 
-                for dist_config in medium_distributions:
-                    logger.info(f"Fitting distribution model: {dist_config['name']}")
-                    model = DistributionModel(dist_config)
-                    model.fit(reference_features)
+                extractor = FeatureExtractor(
+                    backbone=backbone,
+                    layer_config=layer_config,
+                    transform_config=transform_config,
+                )
 
-                    for metric_name in CONFIG["distance_metrics"]:
+                try:
+                    logger.info("Extracting reference features...")
+                    reference_features = extractor.extract(
+                        reference_images, fit_transform=True
+                    )
+                    logger.info(f"Reference features shape: {reference_features.shape}")
+
+                    logger.info("Pre-extracting degraded features...")
+                    degraded_features_cache = extract_all_degraded_features(
+                        eval_images, extractor, CONFIG["degradations"]
+                    )
+
+                    # No GMM fitting needed for MMD/FID (distribution-free metrics)
+                    for metric_config in CONFIG["distance_metrics"]:
                         config_idx += 1
+
+                        # Normalize metric config to dict format
+                        metric_cfg = normalize_metric_config(metric_config)
+                        metric_name = metric_cfg["name"]
+                        metric_id = get_metric_identifier(metric_cfg)
+
                         logger.info(
                             f"Evaluating config {config_idx}/{total_configs}: "
-                            f"metric={metric_name}"
+                            f"metric={metric_id}"
                         )
 
-                        metric = get_distance_metric(metric_name)
+                        # Create MMD/FID metric with reference features
+                        metric = get_distance_metric(
+                            metric_name,
+                            features_ref=reference_features,
+                            kernel=metric_cfg["kernel"],
+                            gamma=metric_cfg["gamma"],
+                        )
                         eval_results = evaluate_with_cached_features(
-                            reference_features, degraded_features_cache, metric
+                            degraded_features_cache, metric
                         )
 
                         monotonicity = {
@@ -579,8 +847,8 @@ def run_medium_experiment():
                         result = {
                             "layers": layer_config["name"],
                             "transform": transform_config["name"],
-                            "distribution": dist_config["name"],
-                            "metric": metric_name,
+                            "distribution": "empirical",  # No distribution model (MMD/FID are distribution-free)
+                            "metric": metric_id,
                             "monotonicity": monotonicity,
                             "detailed_scores": detailed_scores,
                             "mean_monotonicity": compute_aggregate_monotonicity(
@@ -592,8 +860,8 @@ def run_medium_experiment():
                             f"Mean monotonicity: {result['mean_monotonicity']:.4f}"
                         )
 
-            finally:
-                extractor.cleanup()
+                finally:
+                    extractor.cleanup()
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -608,52 +876,264 @@ def run_medium_experiment():
 
 
 def run_quick_test():
-    """Run a quick test with minimal configuration."""
-    logger.info("Running quick test with minimal configuration")
+    """Run a quick test on texture-relevant layers per backbone, gmm_full only."""
+    logger.info("Running quick texture test")
 
-    # Override config for quick test
-    update_config(
-        n_images_inference=50,
-        n_images_evaluation=10,
-    )
+    # Texture-relevant layers per backbone (mid-level = texture/quality, not semantics)
+    TEXTURE_LAYERS = {
+        "vgg19": [
+            {"name": "single_layer_4", "layers": [4]},    # conv3_1 (256ch) — texture onset
+            {"name": "single_layer_8", "layers": [8]},    # conv4_1 (512ch) — rich texture
+            {"name": "single_layer_10", "layers": [10]},  # conv4_3 (512ch) — texture detail
+            {"name": "single_layer_12", "layers": [12]},  # conv5_1 (512ch) — high-level texture
+        ],
+        "lpips_vgg": [
+            {"name": "single_layer_4", "layers": [4]},    # slice3 conv3_1 — texture onset
+            {"name": "single_layer_8", "layers": [8]},    # slice4 conv4_1 — rich texture
+            {"name": "single_layer_10", "layers": [10]},  # slice4 conv4_3 — texture detail
+            {"name": "single_layer_12", "layers": [12]},  # slice5 conv5_1 — high-level texture
+        ],
+        "sd_vae": [
+            {"name": "single_layer_4", "layers": [4]},    # down_blocks.1.resnets.0 — mid features
+            {"name": "single_layer_7", "layers": [7]},    # down_blocks.2.resnets.0 — texture compression
+            {"name": "single_layer_10", "layers": [10]},  # down_blocks.3.resnets.0 — deep texture
+            {"name": "single_layer_12", "layers": [12]},  # mid_block.resnets.0 — bottleneck
+        ],
+        "dinov2_vitb14": [
+            {"name": "single_layer_5", "layers": [5]},    # blocks.4 — mid-level
+            {"name": "single_layer_8", "layers": [8]},    # blocks.7 — texture-rich
+            {"name": "single_layer_10", "layers": [10]},  # blocks.9 — high-level texture
+            {"name": "single_layer_12", "layers": [12]},  # blocks.11 — last block
+        ],
+        "resnet50": [
+            {"name": "single_layer_7", "layers": [7]},    # layer3
+            {"name": "single_layer_8", "layers": [8]},    # layer4
+        ],
+    }
 
-    # Use only first config of each type
-    test_layer_config = CONFIG["layer_configs"][0]
-    test_transform_config = CONFIG["feature_transforms"][0]
-    test_dist_config = CONFIG["distribution_models"][0]
-    test_metric = CONFIG["distance_metrics"][0]
+    backbone = CONFIG["backbone"]
+    test_layers = TEXTURE_LAYERS.get(backbone, TEXTURE_LAYERS["resnet50"])
+    test_transform = {"name": "gram_pca", "use_gram": True, "use_pca": True, "pca_dim": 10}
+    test_dist = {"name": "gmm_full", "type": "gmm", "covariance_type": "full", "n_components": 5}
+
+    update_config(n_images_inference=50, n_images_evaluation=20)
+
+    reference_images = load_images(CONFIG["dataset_path"], CONFIG["n_images_inference"])
+    eval_images = load_images(CONFIG["dataset_path"], CONFIG["n_images_evaluation"])
+    eval_set = set(eval_images)
+    reference_images = [p for p in reference_images if p not in eval_set]
+
+    total = len(test_layers) * len(CONFIG["distance_metrics"])
+    print(f"\n{'='*70}")
+    print(f"QUICK TEST: {backbone} | {len(test_layers)} texture layers | gmm_full | {total} configs")
+    print(f"{'='*70}")
+
+    results = []
+    config_idx = 0
+
+    # Activation cache
+    cache = FeatureCache()
+    ref_id = cache.image_set_id(reference_images)
+    eval_id = cache.image_set_id(eval_images)
+    deg_generator = DegradationGenerator(CONFIG["degradations"])
+
+    for layer_config in test_layers:
+        layer_name_str = BACKBONE_CONFIGS[backbone]["layer_names"].get(
+            layer_config["layers"][0], f"idx_{layer_config['layers'][0]}"
+        )
+        lc_name = layer_config["name"]
+
+        use_cache = (
+            cache.has_reference(backbone, lc_name, ref_id)
+            and cache.has_all_degraded(backbone, lc_name, eval_id, CONFIG["degradations"])
+        )
+
+        if use_cache:
+            # ── CACHE HIT ──
+            logger.info(f"CACHE HIT for {backbone}/{lc_name}")
+            ref_dir = cache._ref_dir(backbone, lc_name, ref_id)
+            eval_dir = cache._eval_dir(backbone, lc_name, eval_id)
+            ref_activations = cache.load_activations(ref_dir)
+
+            reference_features, pca_model = cache.process_activations(
+                ref_activations, test_transform, fit_pca=True
+            )
+
+            degraded_features_cache = {}
+            for deg_type in CONFIG["degradations"].keys():
+                num_levels = deg_generator.get_num_levels(deg_type)
+                features_list = []
+                for level in range(num_levels):
+                    deg_act = cache.load_degraded_activations(eval_dir, deg_type, level)
+                    deg_feat, _ = cache.process_activations(
+                        deg_act, test_transform, pca_model=pca_model
+                    )
+                    features_list.append(deg_feat)
+                degraded_features_cache[deg_type] = features_list
+        else:
+            # ── CACHE MISS: standard extraction ──
+            extractor = FeatureExtractor(
+                backbone=backbone,
+                layer_config=layer_config,
+                transform_config=test_transform,
+            )
+            try:
+                reference_features = extractor.extract(reference_images, fit_transform=True)
+                degraded_features_cache = extract_all_degraded_features(
+                    eval_images, extractor, CONFIG["degradations"]
+                )
+            finally:
+                extractor.cleanup()
+
+        model = DistributionModel(test_dist)
+        model.fit(reference_features)
+
+        # TODO: quick_test() needs updating for new metric config format
+        for metric_config in CONFIG["distance_metrics"]:
+            config_idx += 1
+            metric_cfg = normalize_metric_config(metric_config)
+            metric_name = metric_cfg["name"]
+            metric_id = get_metric_identifier(metric_cfg)
+
+            # Note: quick_test only supports GMM metrics currently
+            metric = get_distance_metric(metric_name, distribution_model=model)
+            eval_results = evaluate_with_cached_features(degraded_features_cache, metric)
+
+            monotonicity = {d: r["monotonicity"] for d, r in eval_results.items()}
+            mean_mono = compute_aggregate_monotonicity(monotonicity)
+
+            print(f"\n[{config_idx}/{total}] {layer_name_str} | {metric_id} | mean_mono={mean_mono:+.4f}")
+            for deg_type, res in eval_results.items():
+                scores_str = " → ".join(f"{s:.2f}" for s in res["scores"][::max(1, len(res["scores"])//4)])
+                print(f"  {deg_type:15s}: mono={res['monotonicity']:+.4f}  scores=[{scores_str}]")
+
+            results.append({
+                "layers": layer_config["name"],
+                "transform": test_transform["name"],
+                "distribution": test_dist["name"],
+                "metric": metric_id,  # FIXED: was metric_name
+                "monotonicity": monotonicity,
+                "detailed_scores": {d: r["scores"] for d, r in eval_results.items()},
+                "mean_monotonicity": mean_mono,
+            })
+
+    # Save CSV
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_path = os.path.join(CONFIG["results_path"], f"resultats_quick_{backbone}_{timestamp}.csv")
+    os.makedirs(CONFIG["results_path"], exist_ok=True)
+    save_results_csv(results, csv_path)
+
+    print(f"\n{'='*70}")
+    print(f"RÉSUMÉ {backbone} — meilleur config:")
+    if results:
+        best = max(results, key=lambda r: r["mean_monotonicity"])
+        layer_idx = int(best["layers"].split("_")[-1])
+        layer_name = BACKBONE_CONFIGS[backbone]["layer_names"].get(layer_idx, "?")
+        print(f"  {layer_name} | {best['metric']} | mean_mono={best['mean_monotonicity']:+.4f}")
+    print(f"{'='*70}\n")
+
+
+def build_feature_cache(backbone: str, layer_indices: List[int], n_images: int):
+    """
+    Build persistent activation cache for specified backbone/layers.
+
+    Extracts raw hook activations (before Gram/GAP/PCA) and saves to disk.
+    Subsequent experiment runs will detect and use this cache automatically.
+    """
+    logger.info(f"Building feature cache: backbone={backbone}, layers={layer_indices}, n_images={n_images}")
+
+    update_config(backbone=backbone, n_images_inference=n_images)
+
+    results_path = CONFIG["results_path"]
+    os.makedirs(results_path, exist_ok=True)
+    setup_logging(results_path)
+
+    cache = FeatureCache()
+    np.random.seed(CONFIG["random_seed"])
 
     # Load images
-    reference_images = load_images(CONFIG["dataset_path"], 50)
-    eval_images = load_images(CONFIG["dataset_path"], 10)
+    reference_images = load_images(CONFIG["dataset_path"], CONFIG["n_images_inference"])
+    eval_images = load_images(CONFIG["dataset_path"], CONFIG["n_images_evaluation"])
+    eval_set = set(eval_images)
+    reference_images = [p for p in reference_images if p not in eval_set]
 
-    # Create extractor
-    extractor = FeatureExtractor(
-        backbone=CONFIG["backbone"],
-        layer_config=test_layer_config,
-        transform_config=test_transform_config,
-    )
+    ref_id = cache.image_set_id(reference_images)
+    eval_id = cache.image_set_id(eval_images)
 
-    try:
-        # Extract features
-        reference_features = extractor.extract(reference_images, fit_transform=True)
-        logger.info(f"Reference features shape: {reference_features.shape}")
+    logger.info(f"Reference images: {len(reference_images)} (id={ref_id})")
+    logger.info(f"Eval images: {len(eval_images)} (id={eval_id})")
 
-        # Evaluate
-        metric = get_distance_metric(test_metric)
-        evaluator = MonotonicityEvaluator(
-            extractor, reference_features, CONFIG["degradations"]
+    backbone_layers = set(BACKBONE_CONFIGS[backbone]["layer_names"].keys())
+
+    for layer_idx in layer_indices:
+        if layer_idx not in backbone_layers:
+            logger.warning(f"Layer {layer_idx} not available for {backbone}, skipping")
+            continue
+
+        layer_config = {"name": f"single_layer_{layer_idx}", "layers": [layer_idx]}
+        layer_name = layer_config["name"]
+        module_name = BACKBONE_CONFIGS[backbone]["layer_names"][layer_idx]
+
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Caching layer {layer_idx} ({module_name})")
+        logger.info(f"{'='*60}")
+
+        # Use raw transform (doesn't matter — we use extract_raw_activations)
+        extractor = FeatureExtractor(
+            backbone=backbone,
+            layer_config=layer_config,
+            transform_config={"name": "raw", "use_gram": False, "use_pca": False},
         )
-        results = evaluator.evaluate_all_degradations(eval_images, metric)
 
-        print("\nQuick Test Results:")
-        print("-" * 40)
-        for deg_type, res in results.items():
-            print(f"{deg_type}: monotonicity = {res['monotonicity']:.4f}")
-            print(f"  scores: {[f'{s:.4f}' for s in res['scores']]}")
+        try:
+            # ── Reference activations ─────────────────────────────
+            if cache.has_reference(backbone, layer_name, ref_id):
+                logger.info(f"Reference activations already cached, skipping")
+            else:
+                logger.info(f"Extracting reference activations ({len(reference_images)} images)...")
+                ref_activations = extractor.extract_raw_activations(reference_images)
+                ref_dir = cache._ref_dir(backbone, layer_name, ref_id)
+                cache.save_activations(
+                    ref_dir, ref_activations, reference_images,
+                    backbone, module_name,
+                )
+                logger.info(f"Reference activations cached: shape={ref_activations.shape}")
 
-    finally:
-        extractor.cleanup()
+            # ── Degraded activations ──────────────────────────────
+            eval_dir = cache._eval_dir(backbone, layer_name, eval_id)
+
+            if cache.has_all_degraded(backbone, layer_name, eval_id, CONFIG["degradations"]):
+                logger.info(f"All degraded activations already cached, skipping")
+            else:
+                logger.info(f"Extracting degraded activations ({len(eval_images)} eval images)...")
+                batch_generator = BatchDegradationGenerator(CONFIG["degradations"], num_workers=8)
+                deg_generator = DegradationGenerator(CONFIG["degradations"])
+
+                pil_images = [Image.open(p).convert("RGB") for p in eval_images]
+
+                for deg_type in CONFIG["degradations"].keys():
+                    num_levels = deg_generator.get_num_levels(deg_type)
+                    logger.info(f"  {deg_type}: {num_levels} levels")
+
+                    for level in range(num_levels):
+                        deg_path = eval_dir / deg_type / f"level_{level:02d}.npy"
+                        if deg_path.exists():
+                            continue
+
+                        degraded_batch = batch_generator.process_image_batch(
+                            pil_images, deg_type, level
+                        )
+                        deg_activations = extractor.extract_raw_activations(degraded_batch)
+                        cache.save_degraded_activations(eval_dir, deg_type, level, deg_activations)
+
+                logger.info(f"Degraded activations cached")
+
+        finally:
+            extractor.cleanup()
+
+    # Print summary
+    print(f"\n{cache.get_cache_summary(backbone)}")
+    logger.info("Cache build complete")
 
 
 def main():
@@ -668,10 +1148,23 @@ def main():
         help="Run mode: 'full' for complete evaluation, 'medium' for balanced run, 'quick' for test run",
     )
     parser.add_argument(
+        "--build-cache",
+        action="store_true",
+        help="Build activation cache for specified backbone/layers instead of running experiment",
+    )
+    parser.add_argument(
         "--backbone",
-        choices=["resnet50", "vgg19", "dinov2_vitb14", "sd_vae", "lpips_vgg"],
+        nargs="+",
+        choices=["resnet50", "vgg19", "dinov2_vitb14", "sd_vae", "lpips_vgg", "all"],
         default=None,
-        help="Override backbone model",
+        help="Backbone model(s) to run. Use 'all' for dinov2+vgg19+sd_vae+lpips_vgg, or list specific ones.",
+    )
+    parser.add_argument(
+        "--layers",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Layer indices to cache (for --build-cache). E.g.: --layers 9 or --layers 7 9 12",
     )
     parser.add_argument(
         "--n-inference",
@@ -689,20 +1182,39 @@ def main():
     args = parser.parse_args()
 
     # Apply overrides
-    if args.backbone:
-        update_config(backbone=args.backbone)
     if args.n_inference:
         update_config(n_images_inference=args.n_inference)
     if args.n_evaluation:
         update_config(n_images_evaluation=args.n_evaluation)
 
-    # Run selected mode
-    if args.mode == "quick":
-        run_quick_test()
-    elif args.mode == "medium":
-        run_medium_experiment()
+    # Determine backbones to run
+    if args.backbone and "all" in args.backbone:
+        backbones = ["dinov2_vitb14", "vgg19", "sd_vae", "lpips_vgg"]
+    elif args.backbone:
+        backbones = args.backbone
     else:
-        run_experiment()
+        backbones = [CONFIG["backbone"]]
+
+    # Build cache mode
+    if args.build_cache:
+        if not args.layers:
+            parser.error("--build-cache requires --layers (e.g. --layers 9 or --layers 7 9 12)")
+        n_images = args.n_inference or CONFIG["n_images_inference"]
+        for bb in backbones:
+            build_feature_cache(bb, args.layers, n_images)
+        return
+
+    # Run for each backbone
+    run_fn = {"quick": run_quick_test, "medium": run_medium_experiment, "full": run_experiment}[args.mode]
+
+    for bb in backbones:
+        logger.info(f"\n{'='*80}\nRunning backbone: {bb}\n{'='*80}")
+        update_config(backbone=bb)
+        try:
+            run_fn()
+        except Exception as e:
+            logger.error(f"Backbone {bb} failed: {e}", exc_info=True)
+            print(f"\n*** ERREUR pour {bb}: {e} — on continue avec le suivant ***\n")
 
 
 if __name__ == "__main__":

@@ -140,6 +140,12 @@ class FeatureExtractor:
             import lpips
             self.model = lpips.LPIPS(net="vgg", verbose=False)
 
+        elif self.backbone_name == "clip_vit_base":
+            from transformers import CLIPVisionModel
+            self.model = CLIPVisionModel.from_pretrained(
+                self.backbone_config["weights"]
+            )
+
         else:
             raise ValueError(f"Unknown backbone: {self.backbone_name}")
 
@@ -156,7 +162,12 @@ class FeatureExtractor:
         module = self.model
         for part in parts:
             if part.isdigit():
-                module = module[int(part)]
+                # Try getattr first (handles named children like "25" in Sequential),
+                # fall back to positional indexing
+                if hasattr(module, part):
+                    module = getattr(module, part)
+                else:
+                    module = module[int(part)]
             else:
                 module = getattr(module, part)
         return module
@@ -273,15 +284,119 @@ class FeatureExtractor:
             features = features[:, indices]
             dim = max_dim
 
-        gram_features = []
-        for i in range(batch_size):
-            f = features[i:i+1].T  # (D, 1)
-            gram = f @ f.T  # (D, D)
-            # Extract upper triangular (including diagonal)
-            upper_tri = gram[np.triu_indices(dim)]
-            gram_features.append(upper_tri)
+        # Vectorized computation: F[b].T @ F[b] for all b
+        # features: (B, D) -> gram: (B, D, D)
+        gram_matrices = np.einsum('bi,bj->bij', features, features)  # (B, D, D)
 
-        return np.array(gram_features)
+        # Extract upper triangular indices
+        triu_idx = np.triu_indices(dim)
+        gram_features = gram_matrices[:, triu_idx[0], triu_idx[1]]  # (B, D*(D+1)/2)
+
+        return gram_features
+
+    def _compute_gram_spatial(self, features: torch.Tensor) -> np.ndarray:
+        """
+        Compute spatial Gram matrix (Gatys et al.) on feature maps.
+
+        Unlike _compute_gram_matrix which operates on GAP'd vectors,
+        this computes F @ F^T on the full spatial feature map, capturing
+        channel co-activation patterns across spatial positions (texture).
+
+        Args:
+            features: Raw hook output (B, C, H, W) or (B, N, D)
+
+        Returns:
+            Upper triangular Gram elements (B, C*(C+1)/2)
+        """
+        # Keep on GPU for matrix operations
+        features = features.float()
+
+        if features.dim() == 4:
+            B, C, H, W = features.shape
+            F = features.reshape(B, C, H * W)  # (B, C, S)
+        elif features.dim() == 3:
+            B, N, D = features.shape
+            F = features.permute(0, 2, 1)  # (B, D, N)
+            C = D
+        elif features.dim() == 2:
+            # No spatial dim — fallback to vector Gram
+            return self._compute_gram_matrix(features.cpu().numpy())
+        else:
+            raise ValueError(f"Unexpected feature dimension: {features.dim()}")
+
+        S = F.shape[2]  # number of spatial positions
+
+        # Vectorized GPU computation: batch matrix multiply
+        # G[b] = F[b] @ F[b].T / S  for all b in parallel
+        G = torch.bmm(F, F.transpose(1, 2)) / S  # (B, C, C)
+
+        # Extract upper triangular indices on GPU
+        triu_mask = torch.triu(torch.ones(C, C, device=features.device, dtype=torch.bool))
+        gram_features = G[:, triu_mask]  # (B, C*(C+1)/2)
+
+        # Transfer to CPU only once at the end
+        return gram_features.cpu().numpy()
+
+    def _compute_gram_spatial_patches(self, features: torch.Tensor, patch_size: int = 4) -> np.ndarray:
+        """
+        Compute local Gram matrices on spatial patches.
+
+        Instead of computing ONE global Gram matrix per image, this computes
+        multiple local Gram matrices (one per patch), giving more samples for MMD.
+
+        Args:
+            features: Raw hook output (B, C, H, W)
+            patch_size: Size of each patch (default: 4 for 4×4 patches)
+
+        Returns:
+            Gram features (B * num_patches, C*(C+1)/2)
+        """
+        features = features.float()
+
+        if features.dim() != 4:
+            # Fallback to global Gram for non-CNN features
+            logger.warning(f"Patches only supported for 4D features, got {features.dim()}D. Using global Gram.")
+            return self._compute_gram_spatial(features)
+
+        B, C, H, W = features.shape
+
+        # Check if spatial dimensions are divisible by patch_size
+        if H % patch_size != 0 or W % patch_size != 0:
+            logger.warning(
+                f"Feature map {H}×{W} not divisible by patch_size={patch_size}. "
+                f"Using global Gram instead."
+            )
+            return self._compute_gram_spatial(features)
+
+        # Number of patches
+        n_patches_h = H // patch_size
+        n_patches_w = W // patch_size
+        n_patches = n_patches_h * n_patches_w
+
+        # Reshape into patches: (B, C, H, W) → (B, C, n_h, p, n_w, p)
+        patches = features.reshape(B, C, n_patches_h, patch_size, n_patches_w, patch_size)
+
+        # Permute to group patches: (B, n_h, n_w, C, p, p)
+        patches = patches.permute(0, 2, 4, 1, 3, 5)
+
+        # Flatten batch and spatial patches: (B * n_patches, C, p * p)
+        patches = patches.reshape(B * n_patches, C, patch_size * patch_size)
+
+        S_patch = patch_size * patch_size  # Spatial positions per patch
+
+        # Compute Gram matrix for each patch
+        G = torch.bmm(patches, patches.transpose(1, 2)) / S_patch  # (B * n_patches, C, C)
+
+        # Extract upper triangular indices
+        triu_mask = torch.triu(torch.ones(C, C, device=features.device, dtype=torch.bool))
+        gram_features = G[:, triu_mask]  # (B * n_patches, C*(C+1)/2)
+
+        logger.debug(
+            f"Computed {n_patches} Gram patches per image "
+            f"(patch_size={patch_size}, shape: {gram_features.shape})"
+        )
+
+        return gram_features.cpu().numpy()
 
     def _apply_pca(self, features: np.ndarray, fit: bool = False) -> np.ndarray:
         """
@@ -312,19 +427,17 @@ class FeatureExtractor:
         """
         Apply configured transformations to features.
 
+        Gram matrix is already computed in extract_batch() (spatial Gram on
+        feature maps). This method only handles PCA reduction.
+
         Args:
-            features: Raw feature array (B, D)
+            features: Feature array (B, D) — already Gram-transformed if use_gram
             fit_pca: Whether to fit PCA on this data
 
         Returns:
             Transformed feature array
         """
-        use_gram = self.transform_config.get("use_gram", False)
         use_pca = self.transform_config.get("use_pca", False)
-
-        if use_gram:
-            features = self._compute_gram_matrix(features)
-            logger.debug(f"After Gram: shape = {features.shape}")
 
         if use_pca:
             features = self._apply_pca(features, fit=fit_pca)
@@ -359,11 +472,24 @@ class FeatureExtractor:
                 _ = self.model(images)
 
         # Collect features from all hooks
+        use_gram = self.transform_config.get("use_gram", False)
+        gram_patches = self.transform_config.get("gram_patches", False)
+        patch_size = self.transform_config.get("patch_size", 4)
+
         features_list = []
         for layer_idx in sorted(self.hooks.keys()):
             hook = self.hooks[layer_idx]
             if hook.features is not None:
-                processed = self._process_features(hook.features)
+                if use_gram:
+                    if gram_patches:
+                        # Spatial Gram with local patches (more samples for MMD)
+                        processed = self._compute_gram_spatial_patches(hook.features, patch_size)
+                    else:
+                        # Spatial Gram (Gatys): compute on full feature map before GAP
+                        processed = self._compute_gram_spatial(hook.features)
+                else:
+                    # Standard: GAP then return vector
+                    processed = self._process_features(hook.features)
                 features_list.append(processed)
             else:
                 logger.warning(f"No features captured from layer {layer_idx}")
@@ -438,6 +564,100 @@ class FeatureExtractor:
 
         return transformed
 
+    def extract_raw_activations(
+        self,
+        images: Union[List[str], List[Image.Image], torch.Tensor],
+        batch_size: int = None,
+    ) -> np.ndarray:
+        """
+        Forward pass and return raw hook activations (no Gram, no GAP, no PCA).
+
+        Only supports single-layer configs (one hooked layer).
+        Returns the raw tensor captured by the hook as a numpy array.
+
+        Args:
+            images: List of image paths, PIL images, or tensor batch
+            batch_size: Batch size for processing
+
+        Returns:
+            Raw activations array (N, C, H, W) for CNN or (N, T, D) for ViT, float32
+        """
+        # Raw activations keep full 4D tensors in GPU memory,
+        # so cap batch size to avoid OOM (16 is safe for most backbones).
+        batch_size = batch_size or min(CONFIG["batch_size"], 16)
+
+        if isinstance(images, torch.Tensor):
+            all_activations = []
+            for i in range(0, images.shape[0], batch_size):
+                batch = images[i:i + batch_size]
+                act = self._extract_raw_batch(batch)
+                all_activations.append(act)
+            return np.concatenate(all_activations, axis=0)
+
+        if isinstance(images[0], str):
+            dataset = ImageDataset(images, transform=self.image_transform)
+        else:
+            dataset = [
+                (self.image_transform(img), str(i))
+                for i, img in enumerate(images)
+            ]
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True if self.device == "cuda" else False,
+            persistent_workers=True,
+        )
+
+        all_activations = []
+        total_batches = len(dataloader)
+
+        for batch_idx, (batch_images, _) in enumerate(dataloader):
+            if batch_idx % CONFIG["log_progress_every"] == 0:
+                logger.info(
+                    f"Extracting raw activations: batch {batch_idx+1}/{total_batches}"
+                )
+            act = self._extract_raw_batch(batch_images)
+            all_activations.append(act)
+
+        result = np.concatenate(all_activations, axis=0)
+        logger.info(f"Extracted raw activations: shape={result.shape}")
+        return result
+
+    def _extract_raw_batch(self, images: torch.Tensor) -> np.ndarray:
+        """
+        Forward pass on a single batch, return raw hook output (no post-processing).
+
+        Args:
+            images: (B, C, H, W) preprocessed tensor
+
+        Returns:
+            Raw hook activations (B, ...) as float32 numpy array
+        """
+        images = images.to(self.device)
+
+        for hook in self.hooks.values():
+            hook.clear()
+
+        with torch.no_grad():
+            if self.backbone_name == "sd_vae":
+                _ = self.model.encoder(images)
+            elif self.backbone_name == "lpips_vgg":
+                scaled = self.model.scaling_layer(images)
+                _ = self.model.net(scaled)
+            else:
+                _ = self.model(images)
+
+        # Collect raw features from the first (single-layer) hook
+        for layer_idx in sorted(self.hooks.keys()):
+            hook = self.hooks[layer_idx]
+            if hook.features is not None:
+                return hook.features.cpu().float().numpy()
+
+        raise RuntimeError("No features were captured from any layer")
+
     def cleanup(self):
         """Remove hooks and free resources."""
         for handle in self.hook_handles:
@@ -446,69 +666,3 @@ class FeatureExtractor:
         self.hook_handles.clear()
 
 
-class GramPCATransformer:
-    """
-    Standalone transformer for Gram matrix + PCA operations.
-    Useful when you want to apply transformations separately from extraction.
-    """
-
-    def __init__(self, use_gram: bool = True, use_pca: bool = True, pca_dim: int = 10):
-        self.use_gram = use_gram
-        self.use_pca = use_pca
-        self.pca_dim = pca_dim
-        self.pca = None
-        self._fitted = False
-
-    def _compute_gram(self, features: np.ndarray) -> np.ndarray:
-        """Compute Gram matrix upper triangular elements."""
-        batch_size, dim = features.shape
-
-        # Subsample for large dimensions
-        max_dim = 2048
-        if dim > max_dim:
-            indices = np.random.choice(dim, max_dim, replace=False)
-            features = features[:, indices]
-            dim = max_dim
-
-        gram_features = []
-        for i in range(batch_size):
-            f = features[i:i+1].T
-            gram = f @ f.T
-            upper_tri = gram[np.triu_indices(dim)]
-            gram_features.append(upper_tri)
-
-        return np.array(gram_features)
-
-    def fit(self, features: np.ndarray) -> "GramPCATransformer":
-        """Fit the transformer on reference features."""
-        transformed = features
-
-        if self.use_gram:
-            transformed = self._compute_gram(transformed)
-
-        if self.use_pca:
-            n_components = min(self.pca_dim, transformed.shape[0], transformed.shape[1])
-            self.pca = PCA(n_components=n_components)
-            self.pca.fit(transformed)
-
-        self._fitted = True
-        return self
-
-    def transform(self, features: np.ndarray) -> np.ndarray:
-        """Transform features using fitted parameters."""
-        transformed = features
-
-        if self.use_gram:
-            transformed = self._compute_gram(transformed)
-
-        if self.use_pca:
-            if not self._fitted:
-                raise RuntimeError("Transformer not fitted. Call fit() first.")
-            transformed = self.pca.transform(transformed)
-
-        return transformed
-
-    def fit_transform(self, features: np.ndarray) -> np.ndarray:
-        """Fit and transform in one step."""
-        self.fit(features)
-        return self.transform(features)

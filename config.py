@@ -1,6 +1,26 @@
 """
 Configuration file for Image Quality Metrics Evaluation Pipeline.
+
+PIPELINE OVERVIEW:
+==================
+ÉTAPE 1: Load N_R reference images from VisDrone2019 dataset
+ÉTAPE 2: Extract features from a specific backbone model and layer
+ÉTAPE 3: Compute Gram matrix for each image → Distribution D_R (N_R vectors)
+ÉTAPE 4: Load N_E evaluation images (different from reference)
+ÉTAPE 5: Apply progressive degradations → Distributions D_E_k, compute MMD distance with D_R
+ÉTAPE 6: Evaluate monotonicity using Spearman correlation
+ÉTAPE 7: Save results to CSV with all parameters
+
+CONFIGURATION SECTIONS:
+=======================
+- CONFIG: Main pipeline parameters (dataset, batch size, degradations, metrics)
+- BACKBONE_CONFIGS: Architectural details for each backbone model
+- ENABLED_LAYERS: Layer selection for experiments (True/False flags)
+  * Use get_enabled_experiment_configs() to get active configurations
+  * Modify ENABLED_LAYERS to enable/disable specific layers
+
 All configurable parameters are centralized here.
+For detailed layer documentation, see LAYERS_GUIDE.md
 """
 
 import os
@@ -9,52 +29,103 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CONFIG = {
-    # Paths
+    # ========================================================================
+    # ÉTAPE 1: DATASET CONFIGURATION
+    # ========================================================================
+    # Path to VisDrone2019 images
     "dataset_path": os.path.join(BASE_DIR, "dataset/VisDrone2019-DET-train/VisDrone2019-DET-train/images/"),
     "results_path": os.path.join(BASE_DIR, "results/"),
-    "n_images_inference": 100,   # Number of images for distribution inference
-    "n_images_evaluation": 50,   # Number of images for degradation evaluation
 
-    # Random seed for reproducibility
-    "random_seed": 42,
+    # N_R: Number of reference images (real distribution)
+    "n_images_inference": 100,
 
-    # Batch processing
-    "batch_size": 512,
+    # N_E: Number of evaluation images (to be degraded)
+    "n_images_evaluation": 20,
+
+    "random_seed": 42,  # For reproducibility
+    "batch_size": 16,   # Batch size for feature extraction
 
     # Image preprocessing
-    "image_size": 224,  # Resize images to this size (224 for ResNet/VGG, 518 for DinoV2)
+    "image_size": 256,  # Resize (256 for SD VAE, 224 for VGG/LPIPS, 518 for DinoV2)
 
-    # Feature extraction - Backbone selection
-    "backbone": "resnet50",  # Options: "resnet50", "vgg19", "dinov2_vitb14"
+    # ========================================================================
+    # ÉTAPE 2 & 3: FEATURE EXTRACTION + GRAM MATRIX
+    # ========================================================================
+    # Backbone: Which model to use (sd_vae, dinov2_vitb14, vgg19, lpips_vgg)
+    "backbone": "sd_vae",
 
-    # Layer configurations for feature extraction
+    # Experiment configurations: 4 backbones × 6 layers = 24 configs
+    # Auto-selected layers (early, mid, late) for each backbone
+    "experiment_configs": [
+        # SD VAE (17 layers, 0-16)
+        {"backbone": "sd_vae", "layer": 0},   # encoder.conv_in
+        {"backbone": "sd_vae", "layer": 3},   # encoder.down_blocks.0.downsamplers.0
+        {"backbone": "sd_vae", "layer": 6},   # encoder.down_blocks.1.downsamplers.0
+        {"backbone": "sd_vae", "layer": 9},   # encoder.down_blocks.2.downsamplers.0
+        {"backbone": "sd_vae", "layer": 12},  # encoder.mid_block.resnets.0
+        {"backbone": "sd_vae", "layer": 16},  # encoder.conv_out
+
+        # DinoV2 ViT-B/14 (14 layers, 0-13)
+        {"backbone": "dinov2_vitb14", "layer": 0},   # patch_embed
+        {"backbone": "dinov2_vitb14", "layer": 2},   # blocks.1
+        {"backbone": "dinov2_vitb14", "layer": 5},   # blocks.4
+        {"backbone": "dinov2_vitb14", "layer": 8},   # blocks.7
+        {"backbone": "dinov2_vitb14", "layer": 11},  # blocks.10
+        {"backbone": "dinov2_vitb14", "layer": 13},  # norm
+
+        # VGG19 (18 layers, 0-17)
+        {"backbone": "vgg19", "layer": 0},   # features.0 (conv1_1)
+        {"backbone": "vgg19", "layer": 3},   # features.7 (conv2_2)
+        {"backbone": "vgg19", "layer": 7},   # features.16 (conv3_4)
+        {"backbone": "vgg19", "layer": 11},  # features.25 (conv4_4)
+        {"backbone": "vgg19", "layer": 15},  # features.34 (conv5_4)
+        {"backbone": "vgg19", "layer": 17},  # classifier.3 (FC2)
+
+        # LPIPS VGG (16 layers, 0-15)
+        {"backbone": "lpips_vgg", "layer": 0},   # net.slice1.0 (conv1_1)
+        {"backbone": "lpips_vgg", "layer": 3},   # net.slice2.7 (conv2_2)
+        {"backbone": "lpips_vgg", "layer": 7},   # net.slice3.16 (conv3_4)
+        {"backbone": "lpips_vgg", "layer": 11},  # net.slice4.25 (conv4_4)
+        {"backbone": "lpips_vgg", "layer": 13},  # net.slice5.30 (conv5_2)
+        {"backbone": "lpips_vgg", "layer": 15},  # net.slice5.34 (conv5_4)
+    ],
+
+    # Legacy layer configs (kept for backward compatibility)
     "layer_configs": [
-        {"name": "single_layer_7", "layers": [7]},
-        {"name": "single_layer_8", "layers": [8]},
         {"name": "single_layer_9", "layers": [9]},
-        {"name": "single_layer_10", "layers": [10]},
-        {"name": "aggregated_8_to_10", "layers": [8, 9, 10]},
-        {"name": "aggregated_7_to_9", "layers": [7, 8, 9]},
     ],
 
-    # Feature transformation modes
+    # Gram matrix computation
+    # - use_gram: Apply Gram matrix transformation
+    # - gram_averaging: How to average the Gram matrix
+    #   * "spatial": Average over all spatial positions (pixels/patches) → (C, C) → upper triangle
+    #   * "global": Compute single Gram over entire feature map
+    # - use_pca: Apply PCA dimensionality reduction after Gram (False for now)
     "feature_transforms": [
-        {"name": "raw", "use_gram": False, "use_pca": False},
-        {"name": "gram_only", "use_gram": True, "use_pca": False},
-        {"name": "gram_pca", "use_gram": True, "use_pca": True, "pca_dim": 10},
+        {
+            "name": "gram_spatial",
+            "use_gram": True,
+            "use_pca": False,
+            "gram_patches": False,
+            "gram_averaging": "spatial"  # Average Gram over all positions
+        },
     ],
 
-    # Distribution modeling configurations
-    "distribution_models": [
-        {"name": "gmm_diag", "type": "gmm", "covariance_type": "diag", "n_components": 5},
-        {"name": "gmm_full", "type": "gmm", "covariance_type": "full", "n_components": 5},
-        {"name": "kde", "type": "kde", "bandwidth": "auto"},  # auto = cross-validation
+    # ========================================================================
+    # ÉTAPE 5: DISTANCE METRIC (MMD)
+    # ========================================================================
+    # MMD: Maximum Mean Discrepancy with RBF kernel
+    # Measures distance between distribution D_R and D_E_k
+    "distance_metrics": [
+        {"name": "mmd", "kernel": "rbf", "gamma": None},  # Auto gamma via median heuristic
     ],
 
-    # Distance metrics to evaluate
-    "distance_metrics": ["fid", "cmmd"],
-
-    # Degradation configurations (ordered by increasing severity, progressive steps)
+    # ========================================================================
+    # ÉTAPE 5: DEGRADATION CONFIGURATIONS
+    # ========================================================================
+    # Progressive degradations applied to evaluation images
+    # Each degradation has K levels of increasing severity
+    # Goal: Verify monotonicity D_E_1 < D_E_2 < ... < D_E_K
     "degradations": {
         "blur": {
             "type": "gaussian_blur",
@@ -75,9 +146,10 @@ CONFIG = {
         },
     },
 
-    # KID specific settings
-    "kid_subsets": 100,      # Number of subsets for KID variance estimation
-    "kid_subset_size": 50,   # Size of each subset
+    # ========================================================================
+    # ÉTAPE 6: MONOTONICITY EVALUATION (implicit via Spearman in evaluation.py)
+    # ÉTAPE 7: RESULTS SAVING (CSV format with all parameters)
+    # ========================================================================
 
     # Logging
     "log_level": "INFO",
@@ -92,8 +164,7 @@ BACKBONE_CONFIGS = {
         "input_size": 224,
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
-        "total_layers": 10,  # 10 étapes principales: conv1, bn1, relu, maxpool, layer1-4, avgpool, fc
-        # Layer indices correspond to ResNet blocks
+        "total_layers": 10,
         "extractable_layers": {
             1: "conv1",
             2: "bn1",
@@ -106,16 +177,15 @@ BACKBONE_CONFIGS = {
             9: "avgpool",
             10: "fc",
         },
-        # Named layers for hook registration
         "layer_names": {
-            7: "layer3",      # Third conv block (1024 channels)
-            8: "layer4",      # Last conv block (2048 channels)
-            9: "avgpool",     # Global average pooling
-            10: "fc",         # Fully connected
-            11: "layer4.0",   # Sub-blocks of layer4
+            7: "layer3",
+            8: "layer4",
+            9: "avgpool",
+            10: "fc",
+            11: "layer4.0",
             12: "layer4.1",
             13: "layer4.2",
-            14: "layer3.5",   # Last block of layer3
+            14: "layer3.5",
             15: "layer3.4",
         },
     },
@@ -125,17 +195,26 @@ BACKBONE_CONFIGS = {
         "input_size": 224,
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
-        "total_layers": 19,  # 16 couches conv + 3 couches FC = 19 couches de poids
+        "total_layers": 19,  # 16 conv + 3 FC
         "layer_names": {
-            7: "features.23",   # Conv layer (block 4, last conv)
-            8: "features.25",   # Conv layer (block 5, 1st conv)
-            9: "features.27",   # Conv layer (block 5, 2nd conv)
-            10: "features.29",  # Conv layer (block 5, 3rd conv)
-            11: "features.31",  # Conv layer (block 5, 4th conv)
-            12: "features.33",  # Conv layer
-            13: "features.35",  # Conv layer
-            14: "classifier.0", # First FC
-            15: "classifier.3", # Second FC
+            0: "features.0",    # conv1_1 (64 ch)
+            1: "features.2",    # conv1_2 (64 ch)
+            2: "features.5",    # conv2_1 (128 ch)
+            3: "features.7",    # conv2_2 (128 ch)
+            4: "features.10",   # conv3_1 (256 ch)
+            5: "features.12",   # conv3_2 (256 ch)
+            6: "features.14",   # conv3_3 (256 ch)
+            7: "features.16",   # conv3_4 (256 ch)
+            8: "features.19",   # conv4_1 (512 ch)
+            9: "features.21",   # conv4_2 (512 ch)
+            10: "features.23",  # conv4_3 (512 ch)
+            11: "features.25",  # conv4_4 (512 ch)
+            12: "features.28",  # conv5_1 (512 ch)
+            13: "features.30",  # conv5_2 (512 ch)
+            14: "features.32",  # conv5_3 (512 ch)
+            15: "features.34",  # conv5_4 (512 ch)
+            16: "classifier.0", # FC1 (4096)
+            17: "classifier.3", # FC2 (4096)
         },
     },
     "dinov2_vitb14": {
@@ -144,18 +223,22 @@ BACKBONE_CONFIGS = {
         "input_size": 518,  # DinoV2 uses 518x518
         "normalize_mean": [0.485, 0.456, 0.406],
         "normalize_std": [0.229, 0.224, 0.225],
-        "total_layers": 12,  # 12 blocs transformer (blocks.0 à blocks.11)
-        # For DinoV2, layers refer to transformer blocks
+        "total_layers": 14,  # patch_embed + 12 blocs transformer + norm
         "layer_names": {
-            7: "blocks.7",
-            8: "blocks.8",
-            9: "blocks.9",
-            10: "blocks.10",
-            11: "blocks.11",
-            12: "norm",  # Final layer norm
-            13: "blocks.7",
-            14: "blocks.6",
-            15: "blocks.5",
+            0: "patch_embed",
+            1: "blocks.0",
+            2: "blocks.1",
+            3: "blocks.2",
+            4: "blocks.3",
+            5: "blocks.4",
+            6: "blocks.5",
+            7: "blocks.6",
+            8: "blocks.7",
+            9: "blocks.8",
+            10: "blocks.9",
+            11: "blocks.10",
+            12: "blocks.11",
+            13: "norm",
         },
     },
     "sd_vae": {
@@ -164,12 +247,25 @@ BACKBONE_CONFIGS = {
         "input_size": 256,
         "normalize_mean": [0.5, 0.5, 0.5],
         "normalize_std": [0.5, 0.5, 0.5],
-        "total_layers": 4,  # 4 down blocks dans l'encodeur
+        "total_layers": 17,
         "layer_names": {
-            7: "encoder.down_blocks.0",   # Down block 1 (128 ch, res/2)
-            8: "encoder.down_blocks.1",   # Down block 2 (256 ch, res/4)
-            9: "encoder.down_blocks.2",   # Down block 3 (512 ch, res/8)
-            10: "encoder.down_blocks.3",  # Down block 4 (512 ch)
+            0: "encoder.conv_in",                       # Conv initiale (128 ch)
+            1: "encoder.down_blocks.0.resnets.0",       # DownBlock0 ResNet0
+            2: "encoder.down_blocks.0.resnets.1",       # DownBlock0 ResNet1
+            3: "encoder.down_blocks.0.downsamplers.0",  # DownBlock0 Downsample
+            4: "encoder.down_blocks.1.resnets.0",       # DownBlock1 ResNet0
+            5: "encoder.down_blocks.1.resnets.1",       # DownBlock1 ResNet1
+            6: "encoder.down_blocks.1.downsamplers.0",  # DownBlock1 Downsample
+            7: "encoder.down_blocks.2.resnets.0",       # DownBlock2 ResNet0
+            8: "encoder.down_blocks.2.resnets.1",       # DownBlock2 ResNet1
+            9: "encoder.down_blocks.2.downsamplers.0",  # DownBlock2 Downsample
+            10: "encoder.down_blocks.3.resnets.0",      # DownBlock3 ResNet0
+            11: "encoder.down_blocks.3.resnets.1",      # DownBlock3 ResNet1
+            12: "encoder.mid_block.resnets.0",          # MidBlock ResNet0
+            13: "encoder.mid_block.attentions.0",       # MidBlock Attention
+            14: "encoder.mid_block.resnets.1",          # MidBlock ResNet1
+            15: "encoder.conv_norm_out",                # GroupNorm finale
+            16: "encoder.conv_out",                     # Conv latente (8 ch)
         },
     },
     "lpips_vgg": {
@@ -178,15 +274,191 @@ BACKBONE_CONFIGS = {
         "input_size": 224,
         "normalize_mean": [0.5, 0.5, 0.5],
         "normalize_std": [0.5, 0.5, 0.5],
-        "total_layers": 5,  # 5 slices VGG dans LPIPS
+        "total_layers": 16,
         "layer_names": {
-            7: "net.slice1",   # LPIPS layer 0 (relu1_2, 64 ch)
-            8: "net.slice2",   # LPIPS layer 1 (relu2_2, 128 ch)
-            9: "net.slice3",   # LPIPS layer 2 (relu3_3, 256 ch)
-            10: "net.slice4",  # LPIPS layer 3 (relu4_3, 512 ch)
+            0: "net.slice1.0",    # conv1_1 (64 ch)
+            1: "net.slice1.2",    # conv1_2 (64 ch)
+            2: "net.slice2.5",    # conv2_1 (128 ch)
+            3: "net.slice2.7",    # conv2_2 (128 ch)
+            4: "net.slice3.10",   # conv3_1 (256 ch)
+            5: "net.slice3.12",   # conv3_2 (256 ch)
+            6: "net.slice3.14",   # conv3_3 (256 ch)
+            7: "net.slice3.16",   # conv3_4 (256 ch)
+            8: "net.slice4.19",   # conv4_1 (512 ch)
+            9: "net.slice4.21",   # conv4_2 (512 ch)
+            10: "net.slice4.23",  # conv4_3 (512 ch)
+            11: "net.slice4.25",  # conv4_4 (512 ch)
+            12: "net.slice5.28",  # conv5_1 (512 ch)
+            13: "net.slice5.30",  # conv5_2 (512 ch)
+            14: "net.slice5.32",  # conv5_3 (512 ch)
+            15: "net.slice5.34",  # conv5_4 (512 ch)
+        },
+    },
+    "clip_vit_base": {
+        "model_name": "clip_vit_base",
+        "weights": "openai/clip-vit-base-patch32",
+        "input_size": 224,
+        "normalize_mean": [0.48145466, 0.4578275, 0.40821073],  # CLIP normalization
+        "normalize_std": [0.26862954, 0.26130258, 0.27577711],
+        "total_layers": 13,  # 12 transformer blocks + final projection
+        "layer_names": {
+            0: "vision_model.embeddings",              # Patch embeddings
+            1: "vision_model.encoder.layers.0",        # Transformer block 0
+            2: "vision_model.encoder.layers.1",        # Transformer block 1
+            3: "vision_model.encoder.layers.2",        # Transformer block 2
+            4: "vision_model.encoder.layers.3",        # Transformer block 3
+            5: "vision_model.encoder.layers.4",        # Transformer block 4
+            6: "vision_model.encoder.layers.5",        # Transformer block 5
+            7: "vision_model.encoder.layers.6",        # Transformer block 6
+            8: "vision_model.encoder.layers.7",        # Transformer block 7
+            9: "vision_model.encoder.layers.8",        # Transformer block 8
+            10: "vision_model.encoder.layers.9",       # Transformer block 9
+            11: "vision_model.encoder.layers.10",      # Transformer block 10
+            12: "vision_model.encoder.layers.11",      # Transformer block 11 (final)
         },
     },
 }
+
+
+# ============================================================================
+# LAYER SELECTION FOR EXPERIMENTS
+# ============================================================================
+# Enable/disable specific layers for each backbone
+# Set True to include in experiments, False to skip
+# Format: {backbone: {layer_index: enabled}}
+#
+# To configure experiments:
+# 1. Find the backbone you want to use below
+# 2. Change True → False to disable a layer
+# 3. Change False → True to enable a layer
+# 4. Run experiments with: python main.py --mode medium
+#
+# Comments show: layer_name - description (channels, resolution, semantic level)
+
+ENABLED_LAYERS = {
+    "sd_vae": {
+        0: True,   # encoder.conv_in - Initial conv (128ch, 256×256, early)
+        1: False,  # encoder.down_blocks.0.resnets.0 - ResNet block (128ch, 256×256)
+        2: False,  # encoder.down_blocks.0.resnets.1 - ResNet block (128ch, 256×256)
+        3: True,   # encoder.down_blocks.0.downsamplers.0 - Downsample (128ch→128×128, early-mid)
+        4: False,  # encoder.down_blocks.1.resnets.0 - ResNet block (256ch, 128×128)
+        5: False,  # encoder.down_blocks.1.resnets.1 - ResNet block (256ch, 128×128)
+        6: True,   # encoder.down_blocks.1.downsamplers.0 - Downsample (256ch→64×64, mid)
+        7: False,  # encoder.down_blocks.2.resnets.0 - ResNet block (512ch, 64×64)
+        8: False,  # encoder.down_blocks.2.resnets.1 - ResNet block (512ch, 64×64)
+        9: True,   # encoder.down_blocks.2.downsamplers.0 - Downsample (512ch→32×32, mid-late)
+        10: False, # encoder.down_blocks.3.resnets.0 - ResNet block (512ch, 32×32)
+        11: False, # encoder.down_blocks.3.resnets.1 - ResNet block (512ch, 32×32)
+        12: True,  # encoder.mid_block.resnets.0 - Bottleneck ResNet (512ch, 32×32, late)
+        13: False, # encoder.mid_block.attentions.0 - Self-attention (512ch, 32×32)
+        14: False, # encoder.mid_block.resnets.1 - Bottleneck ResNet (512ch, 32×32)
+        15: False, # encoder.conv_norm_out - GroupNorm (512ch, 32×32)
+        16: True,  # encoder.conv_out - Latent space (8ch, 32×32, final)
+    },
+    "dinov2_vitb14": {
+        0: True,   # patch_embed - Patch embedding (768d, 1369 tokens, initial)
+        1: False,  # blocks.0 - Transformer block 0 (768d, early)
+        2: True,   # blocks.1 - Transformer block 1 (768d, early-mid)
+        3: False,  # blocks.2 - Transformer block 2 (768d)
+        4: False,  # blocks.3 - Transformer block 3 (768d)
+        5: True,   # blocks.4 - Transformer block 4 (768d, mid)
+        6: False,  # blocks.5 - Transformer block 5 (768d)
+        7: False,  # blocks.6 - Transformer block 6 (768d)
+        8: True,   # blocks.7 - Transformer block 7 (768d, mid-late)
+        9: False,  # blocks.8 - Transformer block 8 (768d)
+        10: False, # blocks.9 - Transformer block 9 (768d)
+        11: True,  # blocks.10 - Transformer block 10 (768d, late)
+        12: False, # blocks.11 - Transformer block 11 (768d)
+        13: True,  # norm - Final layer norm (768d, final)
+    },
+    "vgg19": {
+        0: True,   # features.0 - conv1_1 (64ch, 224×224, very early)
+        1: False,  # features.2 - conv1_2 (64ch, 224×224)
+        2: False,  # features.5 - conv2_1 (128ch, 112×112)
+        3: True,   # features.7 - conv2_2 (128ch, 112×112, early-mid)
+        4: False,  # features.10 - conv3_1 (256ch, 56×56)
+        5: False,  # features.12 - conv3_2 (256ch, 56×56)
+        6: False,  # features.14 - conv3_3 (256ch, 56×56)
+        7: True,   # features.16 - conv3_4 (256ch, 56×56, mid)
+        8: False,  # features.19 - conv4_1 (512ch, 28×28)
+        9: False,  # features.21 - conv4_2 (512ch, 28×28)
+        10: False, # features.23 - conv4_3 (512ch, 28×28)
+        11: True,  # features.25 - conv4_4 (512ch, 28×28, mid-late)
+        12: False, # features.28 - conv5_1 (512ch, 14×14)
+        13: False, # features.30 - conv5_2 (512ch, 14×14)
+        14: False, # features.32 - conv5_3 (512ch, 14×14)
+        15: True,  # features.34 - conv5_4 (512ch, 14×14, late)
+        16: False, # classifier.0 - FC1 (4096d)
+        17: True,  # classifier.3 - FC2 (4096d, final semantic)
+    },
+    "lpips_vgg": {
+        0: True,   # net.slice1.0 - conv1_1 (64ch, 224×224, very early)
+        1: False,  # net.slice1.2 - conv1_2 (64ch, 224×224)
+        2: False,  # net.slice2.5 - conv2_1 (128ch, 112×112)
+        3: True,   # net.slice2.7 - conv2_2 (128ch, 112×112, early-mid)
+        4: False,  # net.slice3.10 - conv3_1 (256ch, 56×56)
+        5: False,  # net.slice3.12 - conv3_2 (256ch, 56×56)
+        6: False,  # net.slice3.14 - conv3_3 (256ch, 56×56)
+        7: True,   # net.slice3.16 - conv3_4 (256ch, 56×56, mid)
+        8: False,  # net.slice4.19 - conv4_1 (512ch, 28×28)
+        9: False,  # net.slice4.21 - conv4_2 (512ch, 28×28)
+        10: False, # net.slice4.23 - conv4_3 (512ch, 28×28)
+        11: True,  # net.slice4.25 - conv4_4 (512ch, 28×28, mid-late)
+        12: False, # net.slice5.28 - conv5_1 (512ch, 14×14)
+        13: True,  # net.slice5.30 - conv5_2 (512ch, 14×14, late)
+        14: False, # net.slice5.32 - conv5_3 (512ch, 14×14)
+        15: True,  # net.slice5.34 - conv5_4 (512ch, 14×14, final)
+    },
+    "resnet50": {
+        7: True,   # layer3 - Residual stage 3 (1024ch, 14×14, mid)
+        8: True,   # layer4 - Residual stage 4 (2048ch, 7×7, late)
+        9: True,   # avgpool - Global average pool (2048d, pooled)
+        10: False, # fc - Classification head (1000d, task-specific)
+        11: False, # layer4.0 - Individual bottleneck 0 (2048ch, 7×7)
+        12: False, # layer4.1 - Individual bottleneck 1 (2048ch, 7×7)
+        13: False, # layer4.2 - Individual bottleneck 2 (2048ch, 7×7)
+        14: False, # layer3.5 - Individual bottleneck 5 (1024ch, 14×14)
+        15: False, # layer3.4 - Individual bottleneck 4 (1024ch, 14×14)
+    },
+    "clip_vit_base": {
+        0: True,   # vision_model.embeddings - Patch embed (768d, 50 tokens, initial)
+        1: False,  # vision_model.encoder.layers.0 - Transformer 0 (768d, early)
+        2: False,  # vision_model.encoder.layers.1 - Transformer 1 (768d)
+        3: True,   # vision_model.encoder.layers.2 - Transformer 2 (768d, early-mid)
+        4: False,  # vision_model.encoder.layers.3 - Transformer 3 (768d)
+        5: False,  # vision_model.encoder.layers.4 - Transformer 4 (768d)
+        6: True,   # vision_model.encoder.layers.5 - Transformer 5 (768d, mid)
+        7: False,  # vision_model.encoder.layers.6 - Transformer 6 (768d)
+        8: False,  # vision_model.encoder.layers.7 - Transformer 7 (768d)
+        9: True,   # vision_model.encoder.layers.8 - Transformer 8 (768d, mid-late)
+        10: False, # vision_model.encoder.layers.9 - Transformer 9 (768d)
+        11: False, # vision_model.encoder.layers.10 - Transformer 10 (768d)
+        12: True,  # vision_model.encoder.layers.11 - Transformer 11 (768d, final)
+    },
+}
+
+
+def get_enabled_experiment_configs():
+    """
+    Get list of enabled backbone+layer configs for experiments.
+
+    Returns:
+        List of dicts with 'backbone' and 'layer' keys.
+        Only includes layers where enabled=True in ENABLED_LAYERS.
+
+    Example:
+        >>> configs = get_enabled_experiment_configs()
+        >>> print(len(configs))
+        32  # If all recommended layers are enabled
+        >>> print(configs[0])
+        {'backbone': 'sd_vae', 'layer': 0}
+    """
+    configs = []
+    for backbone, layers in ENABLED_LAYERS.items():
+        for layer_idx, enabled in layers.items():
+            if enabled:
+                configs.append({"backbone": backbone, "layer": layer_idx})
+    return configs
 
 
 def get_config():

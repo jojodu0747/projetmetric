@@ -168,8 +168,8 @@ class MonotonicityEvaluator:
             # Extract features from degraded image
             features = self.extractor.extract([degraded_img], fit_transform=False)
 
-            # Compute distance from reference
-            score = metric.compute(self.reference_features, features)
+            # Compute distance using distribution-based metric
+            score = metric.compute(features)
             score = get_metric_score(score)
             scores.append(score)
 
@@ -218,8 +218,8 @@ class MonotonicityEvaluator:
             # Extract features
             features = self.extractor.extract(degraded_batch, fit_transform=False)
 
-            # Compute distance from reference
-            score = metric.compute(self.reference_features, features)
+            # Compute distance using distribution-based metric
+            score = metric.compute(features)
             score = get_metric_score(score)
             scores.append(score)
 
