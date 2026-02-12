@@ -106,6 +106,10 @@ class FeatureExtractor:
         self.pca = None
         self.pca_fitted = False
 
+        # Feature scaler (for normalizing Gram features before MMD)
+        self.scaler = None
+        self.scaler_fitted = False
+
         # Load model
         self._load_model()
         self._register_hooks()
@@ -428,16 +432,30 @@ class FeatureExtractor:
         Apply configured transformations to features.
 
         Gram matrix is already computed in extract_batch() (spatial Gram on
-        feature maps). This method only handles PCA reduction.
+        feature maps). This method handles normalization and PCA reduction.
 
         Args:
             features: Feature array (B, D) — already Gram-transformed if use_gram
-            fit_pca: Whether to fit PCA on this data
+            fit_pca: Whether to fit PCA/scaler on this data (for reference features)
 
         Returns:
             Transformed feature array
         """
+        from sklearn.preprocessing import StandardScaler
+
+        use_gram = self.transform_config.get("use_gram", False)
         use_pca = self.transform_config.get("use_pca", False)
+
+        # Normalize Gram features to avoid huge distances in MMD
+        if use_gram:
+            if fit_pca and not self.scaler_fitted:
+                self.scaler = StandardScaler()
+                features = self.scaler.fit_transform(features)
+                self.scaler_fitted = True
+                logger.info(f"Fitted scaler on Gram features: mean={self.scaler.mean_.mean():.2e}, std={self.scaler.scale_.mean():.2e}")
+            elif self.scaler_fitted:
+                features = self.scaler.transform(features)
+            # else: first call without fit_pca, skip normalization
 
         if use_pca:
             features = self._apply_pca(features, fit=fit_pca)

@@ -112,12 +112,22 @@ CONFIG = {
     ],
 
     # ========================================================================
-    # ÉTAPE 5: DISTANCE METRIC (MMD)
+    # ÉTAPE 5: DISTANCE METRICS
     # ========================================================================
-    # MMD: Maximum Mean Discrepancy with RBF kernel
-    # Measures distance between distribution D_R and D_E_k
+    # Available metrics for measuring distribution distances:
+    # - mmd: Maximum Mean Discrepancy (kernel-based, fast, works well)
+    # - fid: Fréchet Inception Distance (assumes Gaussian, good for images)
+    # - sinkhorn: Sinkhorn distance (optimal transport, theoretically sound)
+    # - energy: Energy distance (metric, no parameters, robust)
+    # - adversarial: GAN-style critic (learned, slow but powerful)
     "distance_metrics": [
+        # MMD with RBF kernel (default, recommended)
         {"name": "mmd", "kernel": "rbf", "gamma": None},  # Auto gamma via median heuristic
+
+        # Additional metrics (uncomment to enable):
+        #{"name": "sinkhorn", "reg": 0.1, "max_iter": 100},  # Optimal transport
+        #{"name": "energy", "sample_size": 1000},  # Energy distance
+        # {"name": "adversarial", "n_critics": 5, "max_iter": 100},  # GAN-style (slow)
     ],
 
     # ========================================================================
@@ -349,97 +359,94 @@ ENABLED_LAYERS = {
         9: True,   # encoder.down_blocks.2.downsamplers.0 - Downsample (512ch→32×32, mid-late)
         10: False, # encoder.down_blocks.3.resnets.0 - ResNet block (512ch, 32×32)
         11: False, # encoder.down_blocks.3.resnets.1 - ResNet block (512ch, 32×32)
-        12: True,  # encoder.mid_block.resnets.0 - Bottleneck ResNet (512ch, 32×32, late)
+        12: False,  # encoder.mid_block.resnets.0 - Bottleneck ResNet (512ch, 32×32, late)
         13: False, # encoder.mid_block.attentions.0 - Self-attention (512ch, 32×32)
         14: False, # encoder.mid_block.resnets.1 - Bottleneck ResNet (512ch, 32×32)
         15: False, # encoder.conv_norm_out - GroupNorm (512ch, 32×32)
-        16: True,  # encoder.conv_out - Latent space (8ch, 32×32, final)
+        16: False,  # encoder.conv_out - Latent space (8ch, 32×32, final)
     },
     "dinov2_vitb14": {
-        0: True,   # patch_embed - Patch embedding (768d, 1369 tokens, initial)
+        0: False,   # patch_embed - Patch embedding (768d, 1369 tokens, initial)
         1: False,  # blocks.0 - Transformer block 0 (768d, early)
-        2: True,   # blocks.1 - Transformer block 1 (768d, early-mid)
+        2: False,   # blocks.1 - Transformer block 1 (768d, early-mid)
         3: False,  # blocks.2 - Transformer block 2 (768d)
         4: False,  # blocks.3 - Transformer block 3 (768d)
-        5: True,   # blocks.4 - Transformer block 4 (768d, mid)
+        5: False,   # blocks.4 - Transformer block 4 (768d, mid)
         6: False,  # blocks.5 - Transformer block 5 (768d)
         7: False,  # blocks.6 - Transformer block 6 (768d)
-        8: True,   # blocks.7 - Transformer block 7 (768d, mid-late)
+        8: False,   # blocks.7 - Transformer block 7 (768d, mid-late)
         9: False,  # blocks.8 - Transformer block 8 (768d)
         10: False, # blocks.9 - Transformer block 9 (768d)
-        11: True,  # blocks.10 - Transformer block 10 (768d, late)
+        11: False,  # blocks.10 - Transformer block 10 (768d, late)
         12: False, # blocks.11 - Transformer block 11 (768d)
-        13: True,  # norm - Final layer norm (768d, final)
+        13: False,  # norm - Final layer norm (768d, final)
     },
     "vgg19": {
-        0: True,   # features.0 - conv1_1 (64ch, 224×224, very early)
+        0: False,   # features.0 - conv1_1 (64ch, 224×224, very early)
         1: False,  # features.2 - conv1_2 (64ch, 224×224)
         2: False,  # features.5 - conv2_1 (128ch, 112×112)
-        3: True,   # features.7 - conv2_2 (128ch, 112×112, early-mid)
+        3: False,   # features.7 - conv2_2 (128ch, 112×112, early-mid)
         4: False,  # features.10 - conv3_1 (256ch, 56×56)
         5: False,  # features.12 - conv3_2 (256ch, 56×56)
         6: False,  # features.14 - conv3_3 (256ch, 56×56)
-        7: True,   # features.16 - conv3_4 (256ch, 56×56, mid)
+        7: False,   # features.16 - conv3_4 (256ch, 56×56, mid)
         8: False,  # features.19 - conv4_1 (512ch, 28×28)
         9: False,  # features.21 - conv4_2 (512ch, 28×28)
         10: False, # features.23 - conv4_3 (512ch, 28×28)
-        11: True,  # features.25 - conv4_4 (512ch, 28×28, mid-late)
+        11: False,  # features.25 - conv4_4 (512ch, 28×28, mid-late)
         12: False, # features.28 - conv5_1 (512ch, 14×14)
         13: False, # features.30 - conv5_2 (512ch, 14×14)
         14: False, # features.32 - conv5_3 (512ch, 14×14)
-        15: True,  # features.34 - conv5_4 (512ch, 14×14, late)
+        15: False,  # features.34 - conv5_4 (512ch, 14×14, late)
         16: False, # classifier.0 - FC1 (4096d)
-        17: True,  # classifier.3 - FC2 (4096d, final semantic)
+        17: False,  # classifier.3 - FC2 (4096d, final semantic)
     },
     "lpips_vgg": {
-        0: True,   # net.slice1.0 - conv1_1 (64ch, 224×224, very early)
+        0: False,   # net.slice1.0 - conv1_1 (64ch, 224×224, very early)
         1: False,  # net.slice1.2 - conv1_2 (64ch, 224×224)
         2: False,  # net.slice2.5 - conv2_1 (128ch, 112×112)
-        3: True,   # net.slice2.7 - conv2_2 (128ch, 112×112, early-mid)
+        3: False,   # net.slice2.7 - conv2_2 (128ch, 112×112, early-mid)
         4: False,  # net.slice3.10 - conv3_1 (256ch, 56×56)
         5: False,  # net.slice3.12 - conv3_2 (256ch, 56×56)
         6: False,  # net.slice3.14 - conv3_3 (256ch, 56×56)
-        7: True,   # net.slice3.16 - conv3_4 (256ch, 56×56, mid)
+        7: False,   # net.slice3.16 - conv3_4 (256ch, 56×56, mid)
         8: False,  # net.slice4.19 - conv4_1 (512ch, 28×28)
         9: False,  # net.slice4.21 - conv4_2 (512ch, 28×28)
         10: False, # net.slice4.23 - conv4_3 (512ch, 28×28)
-        11: True,  # net.slice4.25 - conv4_4 (512ch, 28×28, mid-late)
+        11: False,  # net.slice4.25 - conv4_4 (512ch, 28×28, mid-late)
         12: False, # net.slice5.28 - conv5_1 (512ch, 14×14)
-        13: True,  # net.slice5.30 - conv5_2 (512ch, 14×14, late)
+        13: False,  # net.slice5.30 - conv5_2 (512ch, 14×14, late)
         14: False, # net.slice5.32 - conv5_3 (512ch, 14×14)
-        15: True,  # net.slice5.34 - conv5_4 (512ch, 14×14, final)
+        15: False,  # net.slice5.34 - conv5_4 (512ch, 14×14, final)
     },
     "resnet50": {
-        7: True,   # layer3 - Residual stage 3 (1024ch, 14×14, mid)
-        8: True,   # layer4 - Residual stage 4 (2048ch, 7×7, late)
-        9: True,   # avgpool - Global average pool (2048d, pooled)
-        10: False, # fc - Classification head (1000d, task-specific)
-        11: False, # layer4.0 - Individual bottleneck 0 (2048ch, 7×7)
+        7: False,   # layer3 - Residual stage 3 (1024ch, 14×14, mid)
+        8: False,   #layer4.0 - Individual bottleneck 0 (2048ch, 7×7)
         12: False, # layer4.1 - Individual bottleneck 1 (2048ch, 7×7)
         13: False, # layer4.2 - Individual bottleneck 2 (2048ch, 7×7)
         14: False, # layer3.5 - Individual bottleneck 5 (1024ch, 14×14)
         15: False, # layer3.4 - Individual bottleneck 4 (1024ch, 14×14)
     },
     "clip_vit_base": {
-        0: True,   # vision_model.embeddings - Patch embed (768d, 50 tokens, initial)
+        0: False,   # vision_model.embeddings - Patch embed (768d, 50 tokens, initial)
         1: False,  # vision_model.encoder.layers.0 - Transformer 0 (768d, early)
         2: False,  # vision_model.encoder.layers.1 - Transformer 1 (768d)
-        3: True,   # vision_model.encoder.layers.2 - Transformer 2 (768d, early-mid)
+        3: False,   # vision_model.encoder.layers.2 - Transformer 2 (768d, early-mid)
         4: False,  # vision_model.encoder.layers.3 - Transformer 3 (768d)
         5: False,  # vision_model.encoder.layers.4 - Transformer 4 (768d)
-        6: True,   # vision_model.encoder.layers.5 - Transformer 5 (768d, mid)
+        6: False,   # vision_model.encoder.layers.5 - Transformer 5 (768d, mid)
         7: False,  # vision_model.encoder.layers.6 - Transformer 6 (768d)
         8: False,  # vision_model.encoder.layers.7 - Transformer 7 (768d)
-        9: True,   # vision_model.encoder.layers.8 - Transformer 8 (768d, mid-late)
+        9: False,   # vision_model.encoder.layers.8 - Transformer 8 (768d, mid-late)
         10: False, # vision_model.encoder.layers.9 - Transformer 9 (768d)
         11: False, # vision_model.encoder.layers.10 - Transformer 10 (768d)
-        12: True,  # vision_model.encoder.layers.11 - Transformer 11 (768d, final)
+        12: False,  # vision_model.encoder.layers.11 - Transformer 11 (768d, final)
     },
 }
 
 
 def get_enabled_experiment_configs():
-    """
+    """F,  
     Get list of enabled backbone+layer configs for experiments.
 
     Returns:

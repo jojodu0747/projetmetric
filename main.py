@@ -131,16 +131,72 @@ def normalize_metric_config(metric_config):
         metric_config: Either a string (metric name) or dict with 'name' and params
 
     Returns:
-        Dict with 'name', 'kernel', 'gamma' keys
+        Dict with metric parameters
     """
     if isinstance(metric_config, str):
-        return {"name": metric_config, "kernel": "rbf", "gamma": None}
+        # String shorthand: just metric name, use defaults
+        config = {"name": metric_config}
     else:
-        # Ensure all required keys exist
         config = metric_config.copy()
+
+    # Set defaults based on metric type
+    name = config["name"]
+
+    # MMD defaults
+    if name == "mmd":
         config.setdefault("kernel", "rbf")
         config.setdefault("gamma", None)
-        return config
+
+    # Sinkhorn defaults
+    elif name == "sinkhorn":
+        config.setdefault("reg", 0.1)
+        config.setdefault("max_iter", 100)
+
+    # Energy defaults
+    elif name == "energy":
+        config.setdefault("sample_size", 1000)
+
+    # Adversarial defaults
+    elif name == "adversarial":
+        config.setdefault("n_critics", 5)
+        config.setdefault("max_iter", 100)
+
+    # FID has no extra params
+
+    return config
+
+
+def get_metric_kwargs(metric_cfg):
+    """
+    Extract kwargs for get_distance_metric from normalized config.
+
+    Args:
+        metric_cfg: Normalized metric config dict
+
+    Returns:
+        Dict of kwargs to pass to get_distance_metric
+    """
+    name = metric_cfg["name"]
+    kwargs = {}
+
+    if name == "mmd":
+        kwargs["kernel"] = metric_cfg.get("kernel", "rbf")
+        kwargs["gamma"] = metric_cfg.get("gamma")
+
+    elif name == "sinkhorn":
+        kwargs["sinkhorn_reg"] = metric_cfg.get("reg", 0.1)
+        kwargs["sinkhorn_max_iter"] = metric_cfg.get("max_iter", 100)
+
+    elif name == "energy":
+        kwargs["energy_sample_size"] = metric_cfg.get("sample_size", 1000)
+
+    elif name == "adversarial":
+        kwargs["adversarial_n_critics"] = metric_cfg.get("n_critics", 5)
+        kwargs["adversarial_max_iter"] = metric_cfg.get("max_iter", 100)
+
+    # FID has no extra params
+
+    return kwargs
 
 
 def get_metric_identifier(metric_config):
@@ -151,18 +207,37 @@ def get_metric_identifier(metric_config):
         metric_config: Normalized metric config dict
 
     Returns:
-        String identifier like "mmd_rbf_auto" or "cmmd_rbf_0.01"
+        String identifier like "mmd_rbf_auto", "sinkhorn_reg0.1", etc.
     """
     name = metric_config["name"]
-    kernel = metric_config.get("kernel", "rbf")
-    gamma = metric_config.get("gamma")
 
-    if gamma is None:
-        gamma_str = "auto"
+    if name == "mmd":
+        kernel = metric_config.get("kernel", "rbf")
+        gamma = metric_config.get("gamma")
+        if gamma is None:
+            gamma_str = "auto"
+        else:
+            gamma_str = f"{gamma:.4f}".rstrip('0').rstrip('.')
+        return f"{name}_{kernel}_{gamma_str}"
+
+    elif name == "sinkhorn":
+        reg = metric_config.get("reg", 0.1)
+        return f"{name}_reg{reg}"
+
+    elif name == "energy":
+        sample_size = metric_config.get("sample_size", 1000)
+        return f"{name}_n{sample_size}"
+
+    elif name == "adversarial":
+        n_critics = metric_config.get("n_critics", 5)
+        max_iter = metric_config.get("max_iter", 100)
+        return f"{name}_c{n_critics}_i{max_iter}"
+
+    elif name == "fid":
+        return "fid"
+
     else:
-        gamma_str = f"{gamma:.4f}".rstrip('0').rstrip('.')
-
-    return f"{name}_{kernel}_{gamma_str}"
+        return name
 
 
 def evaluate_with_cached_features(
@@ -266,12 +341,13 @@ def save_results_csv(results: List[Dict], filepath: str):
                 transform_cfg = tc
                 break
 
-        # Resolve distribution config
+        # Resolve distribution config (optional, for backward compatibility)
         dist_cfg = None
-        for dc in CONFIG["distribution_models"]:
-            if dc["name"] == r.get("distribution", ""):
-                dist_cfg = dc
-                break
+        if "distribution_models" in CONFIG:
+            for dc in CONFIG["distribution_models"]:
+                if dc["name"] == r.get("distribution", ""):
+                    dist_cfg = dc
+                    break
 
         row = {
             "date": timestamp,
@@ -505,12 +581,12 @@ def run_experiment():
                         f"metric={metric_id}"
                     )
 
-                    # Create MMD/FID metric with reference features
+                    # Create distance metric with reference features
+                    metric_kwargs = get_metric_kwargs(metric_cfg)
                     metric = get_distance_metric(
                         metric_name,
                         features_ref=reference_features,
-                        kernel=metric_cfg["kernel"],
-                        gamma=metric_cfg["gamma"],
+                        **metric_kwargs
                     )
 
                     eval_results = evaluate_with_cached_features(
@@ -582,12 +658,12 @@ def run_experiment():
                             f"metric={metric_id}"
                         )
 
-                        # Create MMD/FID metric with reference features
+                        # Create distance metric with reference features
+                        metric_kwargs = get_metric_kwargs(metric_cfg)
                         metric = get_distance_metric(
                             metric_name,
                             features_ref=reference_features,
-                            kernel=metric_cfg["kernel"],
-                            gamma=metric_cfg["gamma"],
+                            **metric_kwargs
                         )
 
                         eval_results = evaluate_with_cached_features(
@@ -748,12 +824,12 @@ def run_medium_experiment():
                         f"metric={metric_id}"
                     )
 
-                    # Create MMD/FID metric with reference features
+                    # Create distance metric with reference features
+                    metric_kwargs = get_metric_kwargs(metric_cfg)
                     metric = get_distance_metric(
                         metric_name,
                         features_ref=reference_features,
-                        kernel=metric_cfg["kernel"],
-                        gamma=metric_cfg["gamma"],
+                        **metric_kwargs
                     )
                     eval_results = evaluate_with_cached_features(
                         degraded_features_cache, metric
@@ -824,12 +900,12 @@ def run_medium_experiment():
                             f"metric={metric_id}"
                         )
 
-                        # Create MMD/FID metric with reference features
+                        # Create distance metric with reference features
+                        metric_kwargs = get_metric_kwargs(metric_cfg)
                         metric = get_distance_metric(
                             metric_name,
                             features_ref=reference_features,
-                            kernel=metric_cfg["kernel"],
-                            gamma=metric_cfg["gamma"],
+                            **metric_kwargs
                         )
                         eval_results = evaluate_with_cached_features(
                             degraded_features_cache, metric
@@ -985,18 +1061,20 @@ def run_quick_test():
             finally:
                 extractor.cleanup()
 
-        model = DistributionModel(test_dist)
-        model.fit(reference_features)
-
-        # TODO: quick_test() needs updating for new metric config format
+        # Evaluate with distribution-free metrics (FID/MMD/Sinkhorn/Energy/Adversarial)
         for metric_config in CONFIG["distance_metrics"]:
             config_idx += 1
             metric_cfg = normalize_metric_config(metric_config)
             metric_name = metric_cfg["name"]
             metric_id = get_metric_identifier(metric_cfg)
 
-            # Note: quick_test only supports GMM metrics currently
-            metric = get_distance_metric(metric_name, distribution_model=model)
+            # Create distance metric with reference features
+            metric_kwargs = get_metric_kwargs(metric_cfg)
+            metric = get_distance_metric(
+                metric_name,
+                features_ref=reference_features,
+                **metric_kwargs
+            )
             eval_results = evaluate_with_cached_features(degraded_features_cache, metric)
 
             monotonicity = {d: r["monotonicity"] for d, r in eval_results.items()}
