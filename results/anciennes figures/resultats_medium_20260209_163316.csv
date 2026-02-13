@@ -1,0 +1,13 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-09 16:33:16,lpips_vgg,single_layer_11,11,net.slice5,11 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_11,11,net.slice5,11 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_11,11,net.slice5,11 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_11,11,net.slice5,11 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_12,12,net.slice5.25,12 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_12,12,net.slice5.25,12 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.890918,0.951076,0.845154,0.936815,0.830628,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_12,12,net.slice5.25,12 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_12,12,net.slice5.25,12 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.890918,0.951076,0.845154,0.936815,0.830628,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_13,13,net.slice5.27,13 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_13,13,net.slice5.27,13 / 8,8,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.907391,0.951076,0.845154,1.0,0.833333,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_13,13,net.slice5.27,13 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 16:33:16,lpips_vgg,single_layer_13,13,net.slice5.27,13 / 8,8,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.907391,0.951076,0.845154,1.0,0.833333,224,100,50,512,42

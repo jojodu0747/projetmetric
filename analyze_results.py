@@ -147,55 +147,134 @@ def analyze(rows, output_dir):
     plt.savefig(f"{output_dir}/fig4_radar_best_mono.png", dpi=150)
     print("Saved fig4_radar_best_mono.png")
 
-    # ─── FIGURE 5: Profils par couche pour chaque backbone (2x2 grid ou plus) ───
-    n_bb = len(backbones)
-    ncols = min(2, n_bb)
-    nrows = (n_bb + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5 * nrows))
-    if n_bb == 1:
-        axes = [axes]
-    else:
-        axes = axes.flatten()
-
+    # ─── FIGURE 5: 6 figures séparées (une par backbone) avec noms de couches ───
     metrics_in_data = sorted(set(r["metrique_distance"] for r in rows))
-    metric_colors = {"mahalanobis": "#2196F3", "neg_loglik": "#E91E63", "fid": "#4CAF50", "cmmd": "#FF9800"}
-    metric_markers = {"mahalanobis": "o", "neg_loglik": "s", "fid": "^", "cmmd": "D"}
 
-    for idx, bb in enumerate(backbones):
-        ax = axes[idx]
+    # Palette de couleurs vibrante et distinctive
+    metric_colors = {
+        "mmd_rbf_auto": "#FF6B6B",     # Rouge corail
+        "mahalanobis": "#4ECDC4",      # Turquoise
+        "neg_loglik": "#FFD93D",       # Jaune doré
+        "fid": "#95E1D3",              # Vert menthe
+        "cmmd": "#A8E6CF",             # Vert pastel
+        "energy": "#FF8C94",           # Rose saumon
+        "sinkhorn": "#C7CEEA"          # Bleu lavande
+    }
+    metric_markers = {
+        "mmd_rbf_auto": "o",
+        "mahalanobis": "s",
+        "neg_loglik": "^",
+        "fid": "D",
+        "cmmd": "v",
+        "energy": "p",
+        "sinkhorn": "*"
+    }
+
+    # Créer une figure séparée pour chaque backbone
+    for bb in backbones:
+        fig, ax = plt.subplots(figsize=(16, 8), facecolor='white')
+
+        # Fond légèrement coloré
+        ax.set_facecolor('#F8F9FA')
+
         bb_single = [r for r in rows if r["modele_backbone"] == bb
-                     and r["config_couches"].startswith("single_layer")
-                     and r["distribution"] == "gmm_diag"]
+                     and r["config_couches"].startswith("single_layer")]
+
+        if not bb_single:
+            plt.close(fig)
+            continue
+
+        # Extraire tous les layer names disponibles
+        layer_data = {}  # {layer_idx: {"name": ..., "metrics": {metric: value}}}
+        for r in bb_single:
+            layer_idx = int(r["config_couches"].split("_")[-1])
+            if layer_idx not in layer_data:
+                layer_data[layer_idx] = {
+                    "name": r["modules_extraits"] if r["modules_extraits"] else f"Layer {layer_idx}",
+                    "metrics": {}
+                }
+            metric = r["metrique_distance"]
+            layer_data[layer_idx]["metrics"][metric] = float(r["monotonie_moyenne"])
+
+        # Trier par indice
+        sorted_layers = sorted(layer_data.items())
+        layer_indices = [idx for idx, _ in sorted_layers]
+        layer_names = [data["name"] for _, data in sorted_layers]
+
+        # Tracer chaque métrique
         for metric in metrics_in_data:
-            metric_rows = sorted(
-                [r for r in bb_single if r["metrique_distance"] == metric],
-                key=lambda r: int(r["indices_couches"].split("|")[0].strip()),
-            )
-            if not metric_rows:
+            vals = []
+            indices_with_data = []
+            for idx in layer_indices:
+                if metric in layer_data[idx]["metrics"]:
+                    vals.append(layer_data[idx]["metrics"][metric])
+                    indices_with_data.append(idx)
+
+            if not vals:
                 continue
-            names = [r["modules_extraits"] for r in metric_rows]
-            vals = [float(r["monotonie_moyenne"]) for r in metric_rows]
-            ax.plot(range(len(names)), vals,
-                    marker=metric_markers.get(metric, "o"),
-                    color=metric_colors.get(metric, "#666"),
-                    label=metric.upper(), linewidth=2, markersize=6)
-            ax.set_xticks(range(len(names)))
-            ax.set_xticklabels(names, rotation=45, ha="right", fontsize=8)
-        ax.set_title(bb, fontsize=13, fontweight="bold")
-        ax.set_ylabel("Monotonie moyenne")
-        ax.legend(fontsize=9)
-        ax.axhline(y=0, color="grey", linestyle="--", alpha=0.3)
-        ax.grid(alpha=0.3)
-        ax.set_ylim(-0.7, 1.05)
 
-    # Hide unused subplots
-    for idx in range(n_bb, len(axes)):
-        axes[idx].set_visible(False)
+            color = metric_colors.get(metric, "#666666")
+            marker = metric_markers.get(metric, "o")
 
-    plt.suptitle("Profil de monotonie par couche pour chaque backbone", fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/fig5_all_backbones_layer_profiles.png", dpi=150)
-    print("Saved fig5_all_backbones_layer_profiles.png")
+            # Tracer avec style amélioré
+            ax.plot(indices_with_data, vals,
+                    marker=marker,
+                    color=color,
+                    label=metric.upper().replace("_", " "),
+                    linewidth=3,
+                    markersize=10,
+                    markeredgewidth=2,
+                    markeredgecolor='white',
+                    alpha=0.9)
+
+            # Marquer le meilleur point pour cette métrique
+            if vals:
+                best_idx = np.argmax(vals)
+                ax.scatter(indices_with_data[best_idx], vals[best_idx],
+                          s=300, color=color, marker='*',
+                          edgecolors='gold', linewidths=3, zorder=10)
+
+        # Styling amélioré
+        ax.set_title(f"Profil de monotonie - {bb.upper().replace('_', ' ')}\n★ = Meilleur score par métrique",
+                    fontsize=18, fontweight="bold",
+                    color='#2C3E50', pad=20)
+        ax.set_xlabel("Couche (indice | nom du module)", fontsize=13, fontweight='bold')
+        ax.set_ylabel("Monotonie moyenne (Spearman ρ)", fontsize=13, fontweight='bold')
+
+        # X-axis avec indices ET noms
+        ax.set_xticks(layer_indices)
+        # Créer des labels combinés: "idx\nname"
+        combined_labels = [f"{idx}\n{name}" for idx, name in zip(layer_indices, layer_names)]
+        ax.set_xticklabels(combined_labels, rotation=45, ha='right', fontsize=9)
+
+        # Légende améliorée
+        ax.legend(fontsize=11, loc='best', framealpha=0.95,
+                 edgecolor='#CCCCCC', fancybox=True, shadow=True)
+
+        # Lignes de référence
+        ax.axhline(y=0, color='#E74C3C', linestyle='--', alpha=0.5, linewidth=2, label='_nolegend_')
+        ax.axhline(y=0.8, color='#27AE60', linestyle='--', alpha=0.4, linewidth=2, label='_nolegend_')
+
+        # Grille améliorée
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8, color='#95A5A6')
+        ax.set_axisbelow(True)
+
+        # Limites et ticks
+        ax.set_ylim(-0.15, 1.05)
+        if layer_indices:
+            ax.set_xlim(min(layer_indices) - 0.5, max(layer_indices) + 0.5)
+
+        # Bordure du plot
+        for spine in ax.spines.values():
+            spine.set_edgecolor('#BDC3C7')
+            spine.set_linewidth(2)
+
+        # Sauvegarder la figure individuelle
+        plt.tight_layout()
+        output_path = f"{output_dir}/fig5_{bb}_layer_profile.png"
+        plt.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        print(f"Saved {output_path}")
+        plt.close(fig)
 
     print(f"\n=== {5} figures générées dans {output_dir}/ ===")
 

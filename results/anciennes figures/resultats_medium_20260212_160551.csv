@@ -1,0 +1,5 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-12 16:05:51,sd_vae,single_layer_0,,, / 17,17,gram_spatial,True,False,,empirical,,,,,mmd_rbf_auto,0.0,0.0,0.0,0.0,0.0,256,20,5,16,42
+2026-02-12 16:05:51,sd_vae,single_layer_3,,, / 17,17,gram_spatial,True,False,,empirical,,,,,mmd_rbf_auto,0.379513,0.863397,0.654654,0.0,0.0,256,20,5,16,42
+2026-02-12 16:05:51,sd_vae,single_layer_6,,, / 17,17,gram_spatial,True,False,,empirical,,,,,mmd_rbf_auto,0.591896,0.951076,0.654654,0.761853,0.0,256,20,5,16,42
+2026-02-12 16:05:51,sd_vae,single_layer_9,9,encoder.down_blocks.2.downsamplers.0,9 / 17,17,gram_spatial,True,False,,empirical,,,,,mmd_rbf_auto,0.591896,0.951076,0.654654,0.761853,0.0,256,20,5,16,42

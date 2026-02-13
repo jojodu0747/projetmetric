@@ -1,0 +1,65 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_0,0,patch_embed,0 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.734809,-0.951076,-0.845154,-0.993007,-0.15,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_0,0,patch_embed,0 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,-0.682653,-0.951076,-0.845154,-0.951049,0.016667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_0,0,patch_embed,0 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.682391,-0.951076,-0.845154,-1.0,0.066667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_0,0,patch_embed,0 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.603224,-0.951076,-0.845154,-1.0,0.383333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_1,1,blocks.0,1 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.013306,0.951076,0.845154,-0.993007,-0.75,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_1,1,blocks.0,1 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.419978,0.951076,0.845154,0.65035,-0.766667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_1,1,blocks.0,1 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.579098,0.951076,0.845154,0.503497,0.016667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_1,1,blocks.0,1 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.605584,0.951076,0.845154,0.559441,0.066667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_2,2,blocks.1,2 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.846727,0.951076,0.845154,0.657343,0.933333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_2,2,blocks.1,2 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.461381,0.683436,-0.169031,0.881119,0.45,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_2,2,blocks.1,2 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.064451,0.348887,-0.845154,0.538462,-0.3,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_2,2,blocks.1,2 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.110722,0.348887,-0.845154,0.286713,-0.233333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_3,3,blocks.2,3 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.77668,0.951076,0.845154,0.51049,0.8,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_3,3,blocks.2,3 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.595765,0.951076,0.845154,0.503497,0.083333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_3,3,blocks.2,3 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.232915,0.951076,0.845154,-0.097902,-0.766667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_3,3,blocks.2,3 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.089151,0.951076,0.845154,-0.706294,-0.733333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_4,4,blocks.3,4 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.69154,-0.951076,-0.845154,-0.06993,-0.9,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_4,4,blocks.3,4 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.44594,0.951076,0.845154,0.804196,-0.816667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_4,4,blocks.3,4 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.816074,-0.951076,-0.845154,-0.601399,-0.866667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_4,4,blocks.3,4 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.834227,-0.951076,-0.845154,-0.657343,-0.883333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_5,5,blocks.4,5 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.881044,-0.779022,-0.845154,-1.0,-0.9,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_5,5,blocks.4,5 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,-0.623694,0.090806,-0.777542,-0.958042,-0.85,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_5,5,blocks.4,5 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.916889,-0.9224,-0.845154,-1.0,-0.9,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_5,5,blocks.4,5 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.921668,-0.941517,-0.845154,-1.0,-0.9,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_6,6,blocks.5,6 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.891423,-0.941517,-0.845154,-0.979021,-0.8,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_6,6,blocks.5,6 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,-0.062831,0.062131,-0.845154,0.965035,-0.433333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_6,6,blocks.5,6 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.213923,-0.320211,-0.845154,0.993007,-0.683333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_6,6,blocks.5,6 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.227501,-0.320211,-0.845154,0.972028,-0.716667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_7,7,blocks.6,7 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.899058,-0.951076,-0.845154,-1.0,-0.8,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_7,7,blocks.6,7 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.201942,0.062131,-0.845154,0.874126,0.716667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_7,7,blocks.6,7 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.613056,0.616527,0.169031,1.0,0.666667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_7,7,blocks.6,7 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.825777,0.951076,0.845154,0.79021,0.716667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_8,8,blocks.7,8 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.861266,-0.951076,-0.845154,-0.832168,-0.816667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_8,8,blocks.7,8 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,-0.277151,-0.320211,-0.845154,0.573427,-0.516667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_8,8,blocks.7,8 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.582391,0.951076,0.845154,1.0,-0.466667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_8,8,blocks.7,8 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.509897,0.951076,0.845154,0.643357,-0.4,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_9,9,blocks.8,9 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.360916,-0.941517,-0.845154,0.993007,-0.65,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_9,9,blocks.8,9 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,-0.412664,-0.941517,-0.845154,0.986014,-0.85,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_9,9,blocks.8,9 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.39722,-0.893725,-0.845154,1.0,-0.85,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_9,9,blocks.8,9 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.636558,0.951076,0.845154,1.0,-0.25,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_10,10,blocks.9,10 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.48827,-0.004779,0.845154,0.629371,0.483333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_10,10,blocks.9,10 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.161539,-0.425356,-0.845154,1.0,0.916667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_10,10,blocks.9,10 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.445793,-0.9224,-0.845154,0.951049,-0.966667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_10,10,blocks.9,10 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.936558,0.951076,0.845154,1.0,0.95,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_11,11,blocks.10,11 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.463635,-0.415797,-0.845154,-0.076923,-0.516667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_11,11,blocks.10,11 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.928224,0.951076,0.845154,1.0,0.916667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_11,11,blocks.10,11 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,-0.737897,-0.9224,-0.845154,-0.300699,-0.883333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_11,11,blocks.10,11 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.896231,0.951076,0.845154,0.972028,0.816667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_12,12,blocks.11,12 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.700864,0.951076,0.845154,0.440559,0.566667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_12,12,blocks.11,12 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.821489,0.9224,0.777542,0.986014,0.6,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_12,12,blocks.11,12 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.932391,0.951076,0.845154,1.0,0.933333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_12,12,blocks.11,12 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.644641,0.616527,0.169031,0.993007,0.8,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_13,13,norm,13 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.318391,0.377563,-0.777542,0.79021,0.883333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_13,13,norm,13 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.919891,0.951076,0.845154,1.0,0.883333,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_13,13,norm,13 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.632038,0.941517,0.777542,0.909091,-0.1,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,single_layer_13,13,norm,13 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.623474,0.9224,0.845154,0.993007,-0.266667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.7 | blocks.8 | blocks.9,8 | 9 | 10 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,-0.125762,-0.409091,0.371429,-0.615385,0.15,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.7 | blocks.8 | blocks.9,8 | 9 | 10 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.148298,-0.009091,0.314286,-0.328671,0.616667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.7 | blocks.8 | blocks.9,8 | 9 | 10 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.12373,0.390909,0.485714,0.034965,-0.416667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.7 | blocks.8 | blocks.9,8 | 9 | 10 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,0.069543,-0.027273,0.542857,-0.587413,0.35,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_7_to_9,7 | 8 | 9,blocks.6 | blocks.7 | blocks.8,7 | 8 | 9 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,mahalanobis,0.08944,0.581818,-0.085714,0.678322,-0.816667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_7_to_9,7 | 8 | 9,blocks.6 | blocks.7 | blocks.8,7 | 8 | 9 / 14,14,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,neg_loglik,0.187342,0.636364,-0.085714,0.615385,-0.416667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_7_to_9,7 | 8 | 9,blocks.6 | blocks.7 | blocks.8,7 | 8 | 9 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,mahalanobis,0.149192,0.490909,0.257143,0.615385,-0.766667,224,100,50,512,42
+2026-02-09 18:17:48,dinov2_vitb14,aggregated_7_to_9,7 | 8 | 9,blocks.6 | blocks.7 | blocks.8,7 | 8 | 9 / 14,14,gram_pca,True,True,10,gmm_full,gmm,5,full,,neg_loglik,-0.165655,-0.045455,-0.257143,0.356643,-0.716667,224,100,50,512,42

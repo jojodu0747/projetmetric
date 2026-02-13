@@ -1,0 +1,25 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-09 15:02:10,lpips_vgg,single_layer_7,7,net.slice1,7 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.028224,0.951076,0.845154,-1.0,-0.683333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_7,7,net.slice1,7 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.13152,0.951076,0.845154,-0.936815,-0.333333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_7,7,net.slice1,7 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.028224,0.951076,0.845154,-1.0,-0.683333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_7,7,net.slice1,7 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.13152,0.951076,0.845154,-0.936815,-0.333333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_8,8,net.slice2,8 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.832478,0.951076,0.845154,0.65035,0.883333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_8,8,net.slice2,8 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.639521,0.951076,0.845154,0.761853,0.0,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_8,8,net.slice2,8 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.832478,0.951076,0.845154,0.65035,0.883333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_8,8,net.slice2,8 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.639521,0.951076,0.845154,0.761853,0.0,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_9,9,net.slice3,9 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_9,9,net.slice3,9 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.897786,0.951076,0.845154,0.936815,0.858099,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_9,9,net.slice3,9 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_9,9,net.slice3,9 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.897786,0.951076,0.845154,0.936815,0.858099,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_10,10,net.slice4,10 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_10,10,net.slice4,10 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.88668,0.951076,0.845154,0.936815,0.813676,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_10,10,net.slice4,10 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.903224,0.951076,0.845154,1.0,0.816667,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,single_layer_10,10,net.slice4,10 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.88668,0.951076,0.845154,0.936815,0.813676,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_8_to_10,8 | 9 | 10,net.slice2 | net.slice3 | net.slice4,8 | 9 | 10 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.918143,0.951076,0.845154,0.993007,0.883333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_8_to_10,8 | 9 | 10,net.slice2 | net.slice3 | net.slice4,8 | 9 | 10 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.776451,0.951076,0.845154,0.761853,0.547723,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_8_to_10,8 | 9 | 10,net.slice2 | net.slice3 | net.slice4,8 | 9 | 10 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.918143,0.951076,0.845154,0.993007,0.883333,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_8_to_10,8 | 9 | 10,net.slice2 | net.slice3 | net.slice4,8 | 9 | 10 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.776451,0.951076,0.845154,0.761853,0.547723,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_7_to_9,7 | 8 | 9,net.slice1 | net.slice2 | net.slice3,7 | 8 | 9 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.460771,0.951076,0.845154,-0.853147,0.9,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_7_to_9,7 | 8 | 9,net.slice1 | net.slice2 | net.slice3,7 | 8 | 9 / 5,5,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.611668,0.951076,0.845154,0.650444,0.0,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_7_to_9,7 | 8 | 9,net.slice1 | net.slice2 | net.slice3,7 | 8 | 9 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.460771,0.951076,0.845154,-0.853147,0.9,224,100,50,512,42
+2026-02-09 15:02:10,lpips_vgg,aggregated_7_to_9,7 | 8 | 9,net.slice1 | net.slice2 | net.slice3,7 | 8 | 9 / 5,5,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.611668,0.951076,0.845154,0.650444,0.0,224,100,50,512,42

@@ -1,0 +1,21 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_7,7,blocks.7,7 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.919891,0.951076,0.845154,1.0,0.883333,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_7,7,blocks.7,7 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.893222,0.951076,0.845154,0.936815,0.839841,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_7,7,blocks.7,7 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.919891,0.951076,0.845154,1.0,0.883333,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_7,7,blocks.7,7 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.893222,0.951076,0.845154,0.936815,0.839841,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_8,8,blocks.8,8 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.611558,0.951076,0.845154,1.0,-0.35,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_8,8,blocks.8,8 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.589616,0.863397,0.654654,0.840413,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_8,8,blocks.8,8 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.611558,0.951076,0.845154,1.0,-0.35,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_8,8,blocks.8,8 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.589616,0.863397,0.654654,0.840413,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_9,9,blocks.9,9 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.379723,0.616527,0.169031,1.0,-0.266667,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_9,9,blocks.9,9 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.359013,0.6742,0.0,0.761853,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_9,9,blocks.9,9 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.379723,0.616527,0.169031,1.0,-0.266667,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_9,9,blocks.9,9 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.359013,0.6742,0.0,0.761853,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_10,10,blocks.10,10 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,0.836558,0.951076,0.845154,1.0,0.55,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_10,10,blocks.10,10 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,0.603705,0.863397,0.654654,0.89677,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_10,10,blocks.10,10 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,0.836558,0.951076,0.845154,1.0,0.55,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,single_layer_10,10,blocks.10,10 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,0.603705,0.863397,0.654654,0.89677,0.0,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.8 | blocks.9 | blocks.10,8 | 9 | 10 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,fid,-0.346861,-0.527273,-0.257143,-0.636364,0.033333,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.8 | blocks.9 | blocks.10,8 | 9 | 10 / 12,12,gram_pca,True,True,10,gmm_diag,gmm,5,diag,,cmmd,-0.257251,-0.518182,-0.371429,-0.272727,0.133333,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.8 | blocks.9 | blocks.10,8 | 9 | 10 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,fid,-0.346861,-0.527273,-0.257143,-0.636364,0.033333,224,100,50,512,42
+2026-02-09 11:05:27,dinov2_vitb14,aggregated_8_to_10,8 | 9 | 10,blocks.8 | blocks.9 | blocks.10,8 | 9 | 10 / 12,12,gram_pca,True,True,10,gmm_full,gmm,5,full,,cmmd,-0.257251,-0.518182,-0.371429,-0.272727,0.133333,224,100,50,512,42

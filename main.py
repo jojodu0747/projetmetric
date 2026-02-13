@@ -105,11 +105,14 @@ def extract_all_degraded_features(
     logger.info("Loading evaluation images into memory...")
     pil_images = [Image.open(p).convert("RGB") for p in eval_images]
 
-    for deg_type in degradation_config.keys():
+    deg_types = list(degradation_config.keys())
+    total_deg_types = len(deg_types)
+
+    for deg_idx, deg_type in enumerate(deg_types, 1):
         num_levels = deg_generator.get_num_levels(deg_type)
         cache[deg_type] = []
 
-        logger.info(f"Extracting features for {deg_type} ({num_levels} levels)...")
+        logger.info(f"[Degradation {deg_idx}/{total_deg_types}] Extracting features for {deg_type} ({num_levels} levels)...")
 
         for level in range(num_levels):
             # Degrade images in parallel
@@ -119,6 +122,10 @@ def extract_all_degraded_features(
             # Extract features
             features = extractor.extract(degraded_batch, fit_transform=False)
             cache[deg_type].append(features)
+
+            # Log progress every 3 levels or at the end
+            if (level + 1) % 3 == 0 or level == num_levels - 1:
+                logger.info(f"  → {deg_type}: processed {level + 1}/{num_levels} levels")
 
     return cache
 
@@ -521,6 +528,7 @@ def run_experiment():
         * len(CONFIG["distance_metrics"])
     )
     config_idx = 0
+    total_layers = len(valid_layer_configs)
 
     # Activation cache
     cache = FeatureCache()
@@ -529,8 +537,15 @@ def run_experiment():
     eval_id = cache.image_set_id(eval_images)
     deg_generator = DegradationGenerator(CONFIG["degradations"])
 
+    logger.info(f"\n{'='*80}")
+    logger.info(f"STARTING EXPERIMENT: {total_layers} layers × {len(CONFIG['feature_transforms'])} transforms × {len(CONFIG['distance_metrics'])} metrics = {total_configs} configs")
+    logger.info(f"{'='*80}\n")
+
     # Iterate over all configurations
-    for layer_config in valid_layer_configs:
+    for layer_idx, layer_config in enumerate(valid_layer_configs, 1):
+        logger.info(f"\n{'─'*80}")
+        logger.info(f"LAYER {layer_idx}/{total_layers}: {layer_config['name']}")
+        logger.info(f"{'─'*80}")
         layer_name = layer_config["name"]
         is_single = layer_name.startswith("single_layer_")
 
@@ -575,6 +590,12 @@ def run_experiment():
                     metric_cfg = normalize_metric_config(metric_config)
                     metric_name = metric_cfg["name"]
                     metric_id = get_metric_identifier(metric_cfg)
+
+                    # Progress reminder every 5 configs
+                    if config_idx % 5 == 0:
+                        logger.info(f"\n{'>'*60}")
+                        logger.info(f">>> PROGRESS: Config {config_idx}/{total_configs} ({100*config_idx/total_configs:.1f}%) | Layer {layer_idx}/{total_layers}: {layer_config['name']}")
+                        logger.info(f"{'>'*60}\n")
 
                     logger.info(
                         f"Evaluating config {config_idx}/{total_configs}: "
@@ -709,7 +730,10 @@ def run_experiment():
     # Generate plots
     plot_monotonicity_curves(results, results_path)
 
-    logger.info("Experiment completed successfully")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"EXPERIMENT COMPLETED: {len(results)} configurations evaluated")
+    logger.info(f"Results saved to: {csv_path}")
+    logger.info(f"{'='*80}\n")
     return results
 
 
@@ -759,6 +783,7 @@ def run_medium_experiment():
         * len(medium_transforms)
         * len(CONFIG["distance_metrics"])
     )
+    total_layers = len(valid_layer_configs)
     logger.info(f"Medium mode: {total_configs} configurations (MMD/FID only, no GMM)")
 
     results = []
@@ -771,7 +796,14 @@ def run_medium_experiment():
     eval_id = cache.image_set_id(eval_images)
     deg_generator = DegradationGenerator(CONFIG["degradations"])
 
-    for layer_config in valid_layer_configs:
+    logger.info(f"\n{'='*80}")
+    logger.info(f"STARTING MEDIUM EXPERIMENT: {total_layers} layers × {len(medium_transforms)} transforms × {len(CONFIG['distance_metrics'])} metrics = {total_configs} configs")
+    logger.info(f"{'='*80}\n")
+
+    for layer_idx, layer_config in enumerate(valid_layer_configs, 1):
+        logger.info(f"\n{'─'*80}")
+        logger.info(f"LAYER {layer_idx}/{total_layers}: {layer_config['name']}")
+        logger.info(f"{'─'*80}")
         layer_name = layer_config["name"]
         is_single = layer_name.startswith("single_layer_")
 
@@ -818,6 +850,12 @@ def run_medium_experiment():
                     metric_cfg = normalize_metric_config(metric_config)
                     metric_name = metric_cfg["name"]
                     metric_id = get_metric_identifier(metric_cfg)
+
+                    # Progress reminder every 5 configs
+                    if config_idx % 5 == 0:
+                        logger.info(f"\n{'>'*60}")
+                        logger.info(f">>> PROGRESS: Config {config_idx}/{total_configs} ({100*config_idx/total_configs:.1f}%) | Layer {layer_idx}/{total_layers}: {layer_config['name']}")
+                        logger.info(f"{'>'*60}\n")
 
                     logger.info(
                         f"Evaluating config {config_idx}/{total_configs}: "
@@ -947,7 +985,10 @@ def run_medium_experiment():
     print_best_metrics(results)
     plot_monotonicity_curves(results, results_path)
 
-    logger.info("Medium experiment completed successfully")
+    logger.info(f"\n{'='*80}")
+    logger.info(f"MEDIUM EXPERIMENT COMPLETED: {len(results)} configurations evaluated")
+    logger.info(f"Results saved to: {csv_path}")
+    logger.info(f"{'='*80}\n")
     return results
 
 
@@ -1000,8 +1041,9 @@ def run_quick_test():
     reference_images = [p for p in reference_images if p not in eval_set]
 
     total = len(test_layers) * len(CONFIG["distance_metrics"])
+    total_layers = len(test_layers)
     print(f"\n{'='*70}")
-    print(f"QUICK TEST: {backbone} | {len(test_layers)} texture layers | gmm_full | {total} configs")
+    print(f"QUICK TEST: {backbone} | {total_layers} texture layers | gmm_full | {total} configs")
     print(f"{'='*70}")
 
     results = []
@@ -1013,7 +1055,10 @@ def run_quick_test():
     eval_id = cache.image_set_id(eval_images)
     deg_generator = DegradationGenerator(CONFIG["degradations"])
 
-    for layer_config in test_layers:
+    for layer_idx, layer_config in enumerate(test_layers, 1):
+        logger.info(f"\n{'─'*70}")
+        logger.info(f"QUICK TEST - LAYER {layer_idx}/{total_layers}: {layer_config['name']}")
+        logger.info(f"{'─'*70}")
         layer_name_str = BACKBONE_CONFIGS[backbone]["layer_names"].get(
             layer_config["layers"][0], f"idx_{layer_config['layers'][0]}"
         )
@@ -1067,6 +1112,12 @@ def run_quick_test():
             metric_cfg = normalize_metric_config(metric_config)
             metric_name = metric_cfg["name"]
             metric_id = get_metric_identifier(metric_cfg)
+
+            # Progress reminder every 2 configs in quick test
+            if config_idx % 2 == 0:
+                logger.info(f"\n{'>'*60}")
+                logger.info(f">>> QUICK TEST PROGRESS: Config {config_idx}/{total} ({100*config_idx/total:.1f}%) | Layer {layer_idx}/{total_layers}")
+                logger.info(f"{'>'*60}\n")
 
             # Create distance metric with reference features
             metric_kwargs = get_metric_kwargs(metric_cfg)
@@ -1142,8 +1193,15 @@ def build_feature_cache(backbone: str, layer_indices: List[int], n_images: int):
     logger.info(f"Eval images: {len(eval_images)} (id={eval_id})")
 
     backbone_layers = set(BACKBONE_CONFIGS[backbone]["layer_names"].keys())
+    total_layers_to_cache = len([idx for idx in layer_indices if idx in backbone_layers])
 
+    logger.info(f"\n{'='*80}")
+    logger.info(f"BUILDING CACHE: {total_layers_to_cache} layers for {backbone}")
+    logger.info(f"{'='*80}\n")
+
+    cached_count = 0
     for layer_idx in layer_indices:
+        cached_count += 1
         if layer_idx not in backbone_layers:
             logger.warning(f"Layer {layer_idx} not available for {backbone}, skipping")
             continue
@@ -1153,7 +1211,7 @@ def build_feature_cache(backbone: str, layer_indices: List[int], n_images: int):
         module_name = BACKBONE_CONFIGS[backbone]["layer_names"][layer_idx]
 
         logger.info(f"\n{'='*60}")
-        logger.info(f"Caching layer {layer_idx} ({module_name})")
+        logger.info(f"CACHE BUILD [{cached_count}/{total_layers_to_cache}] - Layer {layer_idx} ({module_name})")
         logger.info(f"{'='*60}")
 
         # Use raw transform (doesn't matter — we use extract_raw_activations)
@@ -1189,9 +1247,12 @@ def build_feature_cache(backbone: str, layer_indices: List[int], n_images: int):
 
                 pil_images = [Image.open(p).convert("RGB") for p in eval_images]
 
-                for deg_type in CONFIG["degradations"].keys():
+                deg_types = list(CONFIG["degradations"].keys())
+                total_deg_types = len(deg_types)
+
+                for deg_idx, deg_type in enumerate(deg_types, 1):
                     num_levels = deg_generator.get_num_levels(deg_type)
-                    logger.info(f"  {deg_type}: {num_levels} levels")
+                    logger.info(f"  [{deg_idx}/{total_deg_types}] {deg_type}: {num_levels} levels")
 
                     for level in range(num_levels):
                         deg_path = eval_dir / deg_type / f"level_{level:02d}.npy"
@@ -1204,7 +1265,11 @@ def build_feature_cache(backbone: str, layer_indices: List[int], n_images: int):
                         deg_activations = extractor.extract_raw_activations(degraded_batch)
                         cache.save_degraded_activations(eval_dir, deg_type, level, deg_activations)
 
-                logger.info(f"Degraded activations cached")
+                        # Log progress every 3 levels
+                        if (level + 1) % 3 == 0 or level == num_levels - 1:
+                            logger.info(f"    → {deg_type}: cached {level + 1}/{num_levels} levels")
+
+                logger.info(f"All degraded activations cached for this layer")
 
         finally:
             extractor.cleanup()
@@ -1233,9 +1298,9 @@ def main():
     parser.add_argument(
         "--backbone",
         nargs="+",
-        choices=["resnet50", "vgg19", "dinov2_vitb14", "sd_vae", "lpips_vgg", "all"],
+        choices=["resnet50", "vgg19", "dinov2_vitb14", "sd_vae", "lpips_vgg", "clip_vit_base", "all"],
         default=None,
-        help="Backbone model(s) to run. Use 'all' for dinov2+vgg19+sd_vae+lpips_vgg, or list specific ones.",
+        help="Backbone model(s) to run. Use 'all' for all available backbones, or list specific ones.",
     )
     parser.add_argument(
         "--layers",
@@ -1267,7 +1332,7 @@ def main():
 
     # Determine backbones to run
     if args.backbone and "all" in args.backbone:
-        backbones = ["dinov2_vitb14", "vgg19", "sd_vae", "lpips_vgg"]
+        backbones = ["dinov2_vitb14", "vgg19", "sd_vae", "lpips_vgg", "clip_vit_base"]
     elif args.backbone:
         backbones = args.backbone
     else:

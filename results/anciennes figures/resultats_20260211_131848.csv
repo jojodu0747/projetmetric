@@ -1,0 +1,5 @@
+date,modele_backbone,config_couches,indices_couches,modules_extraits,position_couche,nb_couches_modele,transform,use_gram,use_pca,pca_dim,distribution,dist_type,dist_n_components,dist_covariance_type,dist_bandwidth,metrique_distance,monotonie_moyenne,mono_blur,mono_blur_contrast,mono_noise,mono_aliasing,image_size,n_images_inference,n_images_evaluation,batch_size,random_seed
+2026-02-11 13:18:48,sd_vae,single_layer_9,9,encoder.down_blocks.2.downsamplers.0,9 / 17,17,gram_only,True,False,,empirical,empirical,,,,mmd,0.906575,0.951076,0.845154,0.93007,0.9,256,100,50,2048,42
+2026-02-11 13:18:48,sd_vae,single_layer_9,9,encoder.down_blocks.2.downsamplers.0,9 / 17,17,gram_only,True,False,,empirical,empirical,,,,mmd,0.838393,0.951076,0.845154,0.657343,0.9,256,100,50,2048,42
+2026-02-11 13:18:48,sd_vae,single_layer_9,9,encoder.down_blocks.2.downsamplers.0,9 / 17,17,gram_only,True,False,,empirical,empirical,,,,cmmd,0.906575,0.951076,0.845154,0.93007,0.9,256,100,50,2048,42
+2026-02-11 13:18:48,sd_vae,single_layer_9,9,encoder.down_blocks.2.downsamplers.0,9 / 17,17,gram_only,True,False,,empirical,empirical,,,,cmmd,0.838393,0.951076,0.845154,0.657343,0.9,256,100,50,2048,42
